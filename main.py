@@ -1,80 +1,78 @@
+from agents.research_director import ResearchDirector
+from agents.task_executor import TaskExecutor
 from storage.database.memory import InMemoryDatabase
-from storage.models.research import (
-    ResearchPlan,
-    ResearchRun,
-    ResearchTask,
-    ToolDefinition,
-)
 
 
 def main():
     database = InMemoryDatabase()
 
-    plan = ResearchPlan(
-        question="Does chunk size affect RAG performance?",
-        objectives=[
-            "Compare different chunk sizes",
-            "Measure retrieval performance"
-        ],
-        hypotheses=[
-            "Moderate chunk sizes may improve retrieval accuracy"
-        ],
-        required_capabilities=[
-            "dataset_loader",
-            "embedding_model",
-            "retrieval_evaluator"
-        ],
-        experiments=[
-            "Evaluate 256-token chunks",
-            "Evaluate 512-token chunks",
-            "Evaluate 1024-token chunks"
-        ],
-        success_criteria=[
-            "Experiments complete successfully",
-            "Results are reproducible"
-        ]
-    )
+    director = ResearchDirector(database)
 
-    task = ResearchTask(
-        task_id="task_001",
-        description="Load the research dataset",
-        task_type="data_loading",
-        required_tools=["dataset_loader"]
-    )
+    question = "Does chunk size affect RAG performance?"
 
-    run = ResearchRun(
+    # Create research plan
+    plan = director.create_plan(question)
+
+    # Create research run
+    run = director.start_run(
         run_id="run_001",
-        research_question=plan.question,
-        tasks=[task.task_id]
+        question=question,
     )
 
-    tool = ToolDefinition(
-        tool_id="tool_001",
-        name="dataset_loader",
-        description="Loads and validates a research dataset.",
-        input_schema={
-            "path": "string"
-        },
-        output_schema={
-            "dataset": "object"
-        },
-        tests=[
-            "valid_dataset",
-            "missing_file",
-            "invalid_format"
-        ]
+    # Convert plan into executable tasks
+    tasks = director.create_tasks(plan)
+
+    print("=== AURA RESEARCH DIRECTOR ===")
+
+    print("\nResearch Question:")
+    print(plan.question)
+
+    print("\nObjectives:")
+    for objective in plan.objectives:
+        print(f"- {objective}")
+
+    print("\nRequired Capabilities:")
+    for capability in plan.required_capabilities:
+        print(f"- {capability}")
+
+    print("\nResearch Run:")
+    print(f"ID: {run.run_id}")
+    print(f"Status: {run.status}")
+
+    print("\nResearch Tasks:")
+
+    for task in tasks:
+        print(f"\n[{task.task_id}] {task.task_type}")
+        print(f"  {task.description}")
+        print(f"  Dependencies: {task.dependencies}")
+        print(f"  Required Tools: {task.required_tools}")
+
+    print("\nDatabase State:")
+    print(f"Plans: {len(database.research_plans)}")
+    print(f"Runs: {len(database.research_runs)}")
+    print(f"Tasks: {len(database.research_tasks)}")
+
+    print("\n=== TASK EXECUTION ===")
+
+    executor = TaskExecutor(
+        tasks=tasks,
+        database=database,
+        run_id=run.run_id,
     )
 
-    database.save_research_plan(plan)
-    database.save_research_task(task)
-    database.save_research_run(run)
-    database.save_tool(tool)
+    executor.run()
 
-    print("=== DATABASE TEST ===")
-    print(f"Research plans: {len(database.research_plans)}")
-    print(f"Research tasks: {len(database.research_tasks)}")
-    print(f"Research runs: {len(database.research_runs)}")
-    print(f"Tools: {len(database.tools)}")
+    print("\n=== FINAL RUN STATE ===")
+
+    final_run = database.get_research_run(run.run_id)
+
+    if final_run is not None:
+        print(f"Run ID: {final_run.run_id}")
+        print(f"Status: {final_run.status}")
+        print(f"Completed Tasks: {final_run.completed_tasks}")
+        print(f"Failed Tasks: {final_run.failed_tasks}")
+
+    print("\nAll research tasks completed.")
 
 
 if __name__ == "__main__":
