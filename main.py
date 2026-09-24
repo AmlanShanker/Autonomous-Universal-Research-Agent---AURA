@@ -1,12 +1,15 @@
+from storage.database.memory import InMemoryDatabase
 from storage.models.research import (
     ResearchPlan,
-    ResearchTask,
     ResearchRun,
+    ResearchTask,
     ToolDefinition,
 )
 
 
 def main():
+    database = InMemoryDatabase()
+
     plan = ResearchPlan(
         question="Does chunk size affect RAG performance?",
         objectives=[
@@ -55,7 +58,6 @@ def main():
         output_schema={
             "dataset": "object"
         },
-        dependencies=[],
         tests=[
             "valid_dataset",
             "missing_file",
@@ -63,17 +65,16 @@ def main():
         ]
     )
 
-    print("=== RESEARCH PLAN ===")
-    print(plan.model_dump_json(indent=2))
+    database.save_research_plan(plan)
+    database.save_research_task(task)
+    database.save_research_run(run)
+    database.save_tool(tool)
 
-    print("\n=== RESEARCH TASK ===")
-    print(task.model_dump_json(indent=2))
-
-    print("\n=== RESEARCH RUN ===")
-    print(run.model_dump_json(indent=2))
-
-    print("\n=== TOOL DEFINITION ===")
-    print(tool.model_dump_json(indent=2))
+    print("=== DATABASE TEST ===")
+    print(f"Research plans: {len(database.research_plans)}")
+    print(f"Research tasks: {len(database.research_tasks)}")
+    print(f"Research runs: {len(database.research_runs)}")
+    print(f"Tools: {len(database.tools)}")
 
 
 if __name__ == "__main__":
