@@ -1,3 +1,4 @@
+from agents.llm_client import LLMClient
 from agents.research_director import ResearchDirector
 from agents.task_executor import TaskExecutor
 from storage.database.memory import InMemoryDatabase
@@ -6,11 +7,16 @@ from storage.database.memory import InMemoryDatabase
 def main():
     database = InMemoryDatabase()
 
-    director = ResearchDirector(database)
+    llm_client = LLMClient()
+
+    director = ResearchDirector(
+        database=database,
+        llm_client=llm_client,
+    )
 
     question = "Does chunk size affect RAG performance?"
 
-    # Create research plan
+    # Create research plan using the LLM
     plan = director.create_plan(question)
 
     # Create research run
@@ -31,9 +37,21 @@ def main():
     for objective in plan.objectives:
         print(f"- {objective}")
 
+    print("\nHypotheses:")
+    for hypothesis in plan.hypotheses:
+        print(f"- {hypothesis}")
+
     print("\nRequired Capabilities:")
     for capability in plan.required_capabilities:
         print(f"- {capability}")
+
+    print("\nExperiments:")
+    for experiment in plan.experiments:
+        print(f"- {experiment}")
+
+    print("\nSuccess Criteria:")
+    for criterion in plan.success_criteria:
+        print(f"- {criterion}")
 
     print("\nResearch Run:")
     print(f"ID: {run.run_id}")

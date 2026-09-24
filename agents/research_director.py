@@ -1,3 +1,5 @@
+import json
+
 from storage.database.base import Database
 from storage.models.research import (
     ResearchPlan,
@@ -10,47 +12,113 @@ class ResearchDirector:
     """
     Coordinates a research request from planning to execution.
 
-    The director does not perform the research itself.
-    It decides what needs to happen and coordinates other components.
+    The director uses an LLM to generate the research plan,
+    then converts that plan into executable research tasks.
     """
 
-    def __init__(self, database: Database):
+    def __init__(
+        self,
+        database: Database,
+        llm_client,
+    ):
         self.database = database
+        self.llm_client = llm_client
 
     def create_plan(self, question: str) -> ResearchPlan:
         """
-        Create an initial research plan for a question.
-
-        This is intentionally rule-based for now.
-        An LLM planner will replace this logic later.
+        Generate a research plan using the LLM.
         """
 
-        plan = ResearchPlan(
-            question=question,
-            objectives=[
-                "Understand the research question",
-                "Gather relevant evidence",
-                "Evaluate the evidence",
-                "Produce a reproducible conclusion",
-            ],
-            hypotheses=[],
-            required_capabilities=[
-                "literature_search",
-                "evidence_analysis",
-            ],
-            experiments=[],
-            success_criteria=[
-                "Relevant evidence is collected",
-                "Evidence is evaluated",
-                "Conclusion is reproducible",
-            ],
-        )
+        prompt = f"""
+You are the Research Director of an autonomous research system called AURA.
+
+Create a structured research plan for this question:
+
+{question}
+
+Return ONLY valid JSON.
+
+The JSON must contain exactly these fields:
+
+{{
+    "question": "the original research question",
+    "objectives": [
+        "objective 1",
+        "objective 2",
+        "objective 3"
+    ],
+    "hypotheses": [
+        "hypothesis 1",
+        "hypothesis 2"
+    ],
+    "required_capabilities": [
+        "capability 1",
+        "capability 2"
+    ],
+    "experiments": [
+        "experiment 1",
+        "experiment 2"
+    ],
+    "success_criteria": [
+        "criterion 1",
+        "criterion 2"
+    ]
+}}
+
+Requirements:
+
+- Keep the original question unchanged.
+- Create concrete research objectives.
+- Include testable hypotheses when appropriate.
+- Identify capabilities or tools AURA will need.
+- Propose experiments when useful.
+- Define measurable success criteria.
+- Do not include markdown.
+- Do not include explanations outside the JSON.
+"""
+
+        response = self.llm_client.generate(prompt)
+
+        try:
+            plan_data = self._parse_json(response)
+            plan = ResearchPlan(**plan_data)
+
+        except Exception as error:
+            raise RuntimeError(
+                f"Failed to create a valid research plan from LLM response: {error}"
+            ) from error
 
         self.database.save_research_plan(plan)
 
         return plan
 
-    def start_run(self, run_id: str, question: str) -> ResearchRun:
+    def _parse_json(self, response: str) -> dict:
+        """
+        Parse JSON returned by the LLM.
+
+        Also handles JSON wrapped in markdown code fences.
+        """
+
+        response = response.strip()
+
+        if response.startswith("```"):
+            lines = response.splitlines()
+
+            if lines[0].startswith("```"):
+                lines = lines[1:]
+
+            if lines and lines[-1].strip() == "```":
+                lines = lines[:-1]
+
+            response = "\n".join(lines).strip()
+
+        return json.loads(response)
+
+    def start_run(
+        self,
+        run_id: str,
+        question: str,
+    ) -> ResearchRun:
         """
         Create and persist a new research run.
         """
@@ -65,7 +133,10 @@ class ResearchDirector:
 
         return run
 
-    def create_tasks(self, plan: ResearchPlan) -> list[ResearchTask]:
+    def create_tasks(
+        self,
+        plan: ResearchPlan,
+    ) -> list[ResearchTask]:
         """
         Convert a research plan into an executable task graph.
         """
