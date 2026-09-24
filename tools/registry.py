@@ -25,10 +25,10 @@ class ToolRegistry:
        - A ToolDefinition is NOT executable code.
 
     3. Validated tools
-       - Executable implementations that have been
-         validated against their ToolDefinition.
-       - Only validated tools are considered safe for
-         normal research execution.
+       - Executable implementations that have successfully
+         passed validation against their ToolDefinition.
+       - Only validated tools are considered executable by
+         the research execution layer.
     """
 
     def __init__(
@@ -157,13 +157,23 @@ class ToolRegistry:
         Validate an executable tool against its
         persistent ToolDefinition.
 
-        A tool must already have both:
+        Validation changes the persistent definition status:
 
-        - an executable implementation
-        - a persistent ToolDefinition
+            draft
+              ↓
+            validated
 
-        Successful validation adds the implementation
-        to the validated_tools collection.
+        or:
+
+            draft
+              ↓
+            failed
+
+        Successful validation also adds the executable
+        implementation to validated_tools.
+
+        Failed validation removes the tool from
+        validated_tools.
         """
 
         tool = self.get(
@@ -191,17 +201,39 @@ class ToolRegistry:
             definition=definition,
         )
 
+        # -----------------------------------------
+        # Validation Success
+        # -----------------------------------------
+
         if result.valid:
+
+            definition.status = "validated"
 
             self.validated_tools[
                 tool_name
             ] = tool
 
+        # -----------------------------------------
+        # Validation Failure
+        # -----------------------------------------
+
         else:
+
+            definition.status = "failed"
 
             self.validated_tools.pop(
                 tool_name,
                 None,
+            )
+
+        # -----------------------------------------
+        # Persist Validation Status
+        # -----------------------------------------
+
+        if self.database is not None:
+
+            self.database.save_tool(
+                definition
             )
 
         return result

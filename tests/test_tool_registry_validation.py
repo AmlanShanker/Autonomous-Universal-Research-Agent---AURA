@@ -1,5 +1,4 @@
 from storage.models.research import ToolDefinition
-from tools.implementations import DatasetDownloadTool
 from tools.registry import ToolRegistry
 
 
@@ -40,7 +39,7 @@ def create_dataset_definition() -> ToolDefinition:
             "Prevent path traversal.",
             "Calculate SHA-256 checksum.",
         ],
-        status="validated",
+        status="draft",
     )
 
 
@@ -56,7 +55,7 @@ def test_registered_tool_is_not_automatically_validated():
     )
 
 
-def test_valid_tool_can_be_validated():
+def test_valid_tool_changes_status_to_validated():
     registry = ToolRegistry()
 
     definition = create_dataset_definition()
@@ -70,6 +69,8 @@ def test_valid_tool_can_be_validated():
     )
 
     assert result.valid is True
+
+    assert definition.status == "validated"
 
     assert registry.has_validated(
         "dataset_download"
@@ -85,7 +86,7 @@ def test_valid_tool_can_be_validated():
     )
 
 
-def test_invalid_tool_is_not_validated():
+def test_invalid_tool_changes_status_to_failed():
     registry = ToolRegistry()
 
     definition = create_dataset_definition()
@@ -102,7 +103,49 @@ def test_invalid_tool_is_not_validated():
 
     assert result.valid is False
 
+    assert definition.status == "failed"
+
     assert not registry.has_validated(
+        "dataset_download"
+    )
+
+
+def test_failed_tool_can_become_validated_after_fix():
+    registry = ToolRegistry()
+
+    definition = create_dataset_definition()
+
+    definition.name = "wrong_name"
+
+    registry.register_definition(
+        definition
+    )
+
+    first_result = registry.validate_tool(
+        "dataset_download"
+    )
+
+    assert first_result.valid is False
+
+    assert definition.status == "failed"
+
+    assert not registry.has_validated(
+        "dataset_download"
+    )
+
+    # Fix the persistent definition.
+
+    definition.name = "dataset_download"
+
+    second_result = registry.validate_tool(
+        "dataset_download"
+    )
+
+    assert second_result.valid is True
+
+    assert definition.status == "validated"
+
+    assert registry.has_validated(
         "dataset_download"
     )
 
