@@ -25,6 +25,8 @@ class GeneratedTool:
     """
 
     name: str
+    capability: str
+
     description: str
     purpose: str
 
@@ -36,7 +38,26 @@ class GeneratedTool:
 
 
 class ToolBuilder:
-  
+    """
+    Designs missing tools using the AURA LLM.
+
+    Current responsibility:
+
+        Capability Gap
+             ↓
+        LLM Tool Design
+             ↓
+        Structured Tool Specification
+             ↓
+        Persistent ToolDefinition
+
+    The builder does NOT:
+        - generate executable code
+        - execute generated code
+        - install packages
+        - modify the host system
+    """
+
     def __init__(
         self,
         llm_client: LLMClient | None = None,
@@ -83,6 +104,7 @@ The JSON must contain exactly these fields:
 
 {{
     "name": "tool_name",
+    "capability": "{capability}",
     "description": "short description",
     "purpose": "what the tool accomplishes",
     "inputs": [
@@ -103,6 +125,8 @@ The JSON must contain exactly these fields:
 
 Requirements:
 
+- The capability field MUST contain exactly:
+  {capability}
 - The name must represent the capability.
 - The description must explain what the tool does.
 - The purpose must explain why AURA needs it.
@@ -129,6 +153,7 @@ Requirements:
 
             tool = GeneratedTool(
                 name=data["name"],
+                capability=data["capability"],
                 description=data["description"],
                 purpose=data["purpose"],
                 inputs=data["inputs"],
@@ -149,6 +174,12 @@ Requirements:
             tool
         )
 
+        if tool.capability != capability:
+            raise ValueError(
+                "Generated tool capability does not "
+                "match the requested capability."
+            )
+
         return tool
 
     def to_tool_definition(
@@ -163,6 +194,7 @@ Requirements:
         return ToolDefinition(
             tool_id=tool.name,
             name=tool.name,
+            capability=tool.capability,
             description=tool.description,
             purpose=tool.purpose,
             input_schema={
@@ -222,6 +254,11 @@ Requirements:
         if not tool.name.strip():
             raise ValueError(
                 "Generated tool name cannot be empty."
+            )
+
+        if not tool.capability.strip():
+            raise ValueError(
+                "Generated tool capability cannot be empty."
             )
 
         if not tool.description.strip():

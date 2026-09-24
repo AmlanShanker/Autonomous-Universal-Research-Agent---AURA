@@ -39,8 +39,7 @@ class ToolRegistry:
             LiteratureSearchTool()
         )
 
-        # Load persisted tool definitions if
-        # a database was provided.
+        # Load persisted tool definitions.
         if self.database is not None:
             self.load_definitions()
 
@@ -87,7 +86,7 @@ class ToolRegistry:
 
     def load_definitions(self) -> None:
         """
-        Load persisted tool definitions from MongoDB.
+        Load persisted tool definitions from the database.
 
         Only definitions are loaded.
 
@@ -100,6 +99,7 @@ class ToolRegistry:
         collection = self.database.tools
 
         for document in collection.find():
+
             document.pop(
                 "_id",
                 None,
@@ -136,6 +136,40 @@ class ToolRegistry:
         return self.definitions.get(
             tool_id
         )
+
+    def find_definition_by_capability(
+        self,
+        capability: str,
+    ) -> ToolDefinition | None:
+        """
+        Find a persisted tool definition by capability.
+
+        Capability matching is exact and case-insensitive.
+
+        The capability is kept separate from the tool name
+        because a generated tool may have a human-friendly
+        name such as 'ExperimentDesigner' while the requested
+        capability is 'experiment_design'.
+        """
+
+        capability = capability.strip().lower()
+
+        if not capability:
+            return None
+
+        for definition in self.definitions.values():
+
+            definition_capability = (
+                definition.capability.strip().lower()
+            )
+
+            if (
+                definition_capability
+                == capability
+            ):
+                return definition
+
+        return None
 
     def has(
         self,

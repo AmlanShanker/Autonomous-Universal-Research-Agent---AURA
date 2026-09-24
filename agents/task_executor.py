@@ -14,8 +14,15 @@ from tools.registry import ToolRegistry
 class TaskExecutor:
     """
     Executes research tasks while respecting dependencies,
-    detecting missing capabilities, and invoking the
-    Tool Builder when a required capability is unavailable.
+    detecting missing capabilities, reusing known tool
+    definitions, and invoking the Tool Builder when a
+    capability is completely unknown.
+
+    Important distinction:
+
+    - An executable ResearchTool can actually run.
+    - A ToolDefinition is persistent knowledge about a tool.
+    - A persisted ToolDefinition is NOT automatically executable.
     """
 
     def __init__(
@@ -68,6 +75,11 @@ class TaskExecutor:
             object,
         ] = {}
 
+        self.reused_tool_definitions: dict[
+            str,
+            object,
+        ] = {}
+
     def get_ready_tasks(
         self,
     ) -> list[ResearchTask]:
@@ -89,7 +101,6 @@ class TaskExecutor:
             )
 
             if dependencies_completed:
-
                 ready_tasks.append(task)
 
         return ready_tasks
@@ -104,7 +115,7 @@ class TaskExecutor:
         Returns:
             True if the task completed successfully.
             False if the task is blocked by a
-            missing capability.
+            missing executable capability.
         """
 
         print(
@@ -180,7 +191,7 @@ class TaskExecutor:
             )
 
             print(
-                "Missing capabilities:"
+                "Missing executable capabilities:"
             )
 
             for tool_name in (
@@ -235,12 +246,30 @@ class TaskExecutor:
         """
         Execute all tools required by a task.
 
-        Missing tools are detected by the
-        Capability Gap Detector.
+        Missing executable tools are first checked against
+        persistent tool definitions.
 
-        The Tool Builder then creates a specification
-        describing how the missing capability could
-        eventually be implemented.
+        If AURA already knows the capability:
+
+            Capability
+                 ↓
+            Known definition
+                 ↓
+            Block until executable implementation exists
+
+        If AURA does not know the capability:
+
+            Capability
+                 ↓
+            Tool Builder
+                 ↓
+            Generated specification
+                 ↓
+            Persistent definition
+                 ↓
+            Block until implementation exists
+
+        No generated code is executed here.
         """
 
         # -----------------------------------------
@@ -273,25 +302,70 @@ class TaskExecutor:
         )
 
         # -----------------------------------------
-        # Build Specifications for Missing Tools
+        # Resolve Capability Gaps
         # -----------------------------------------
 
         if gaps:
 
-            missing_tools = []
+            unresolved_capabilities = []
 
             for gap in gaps:
 
+                capability = (
+                    gap.capability
+                )
+
                 print(
                     f"Capability gap detected: "
-                    f"{gap.capability}"
+                    f"{capability}"
+                )
+
+                # -----------------------------------------
+                # Check Persistent Tool Knowledge
+                # -----------------------------------------
+
+                existing_definition = (
+                    self.tool_registry
+                    .find_definition_by_capability(
+                        capability
+                    )
+                )
+
+                if existing_definition is not None:
+
+                    self.reused_tool_definitions[
+                        capability
+                    ] = existing_definition
+
+                    print(
+                        f"Known tool definition found: "
+                        f"{existing_definition.name}"
+                    )
+
+                    print(
+                        "The definition is persistent "
+                        "knowledge, but no executable "
+                        "implementation is registered."
+                    )
+
+                    unresolved_capabilities.append(
+                        capability
+                    )
+
+                    continue
+
+                # -----------------------------------------
+                # Build New Tool Specification
+                # -----------------------------------------
+
+                print(
+                    f"No known definition found "
+                    f"for '{capability}'."
                 )
 
                 build_request = (
                     ToolBuildRequest(
-                        capability=(
-                            gap.capability
-                        ),
+                        capability=capability,
                         reason=gap.reason,
                     )
                 )
@@ -302,8 +376,40 @@ class TaskExecutor:
                     )
                 )
 
+                # -----------------------------------------
+                # Convert to Persistent Definition
+                # -----------------------------------------
+
+                tool_definition = (
+                    self.tool_builder
+                    .to_tool_definition(
+                        generated_tool
+                    )
+                )
+
+                # -----------------------------------------
+                # Persist Definition
+                # -----------------------------------------
+
+                self.database.save_tool(
+                    tool_definition
+                )
+
+                # Register the definition in the
+                # current registry as knowledge.
+                #
+                # This does NOT make it executable.
+
+                if not self.tool_registry.has_definition(
+                    tool_definition.tool_id
+                ):
+
+                    self.tool_registry.register_definition(
+                        tool_definition
+                    )
+
                 self.generated_tool_specs[
-                    gap.capability
+                    capability
                 ] = generated_tool
 
                 print(
@@ -316,12 +422,21 @@ class TaskExecutor:
                     f"{generated_tool.purpose}"
                 )
 
-                missing_tools.append(
-                    gap.capability
+                print(
+                    "Tool definition persisted "
+                    "to MongoDB."
                 )
 
+                unresolved_capabilities.append(
+                    capability
+                )
+
+            # -----------------------------------------
+            # Block Until Implementations Exist
+            # -----------------------------------------
+
             raise CapabilityGapError(
-                missing_tools
+                unresolved_capabilities
             )
 
         # -----------------------------------------
@@ -396,16 +511,17 @@ class TaskExecutor:
             f"registered tool '{tool_name}'."
         )
 
-    def run(self) -> None:
+    def run(
+        self,
+    ) -> None:
         """
         Execute the research task graph.
 
-        If a required capability is missing,
-        AURA detects the gap, asks the Tool Builder
-        to generate a specification, and blocks the run.
+        A research run is completed only when every
+        task actually completes.
 
-        The research run is never marked completed
-        unless every task actually completes.
+        Missing executable capabilities cause the
+        run to become blocked.
         """
 
         run = self.database.get_research_run(
@@ -473,8 +589,8 @@ class TaskExecutor:
 
                     raise RuntimeError(
                         "Research run is blocked "
-                        "because required tools "
-                        "are unavailable."
+                        "because required executable "
+                        "capabilities are unavailable."
                     )
 
                 # -----------------------------------------
@@ -520,10 +636,8 @@ class TaskExecutor:
 
                 else:
 
-                    # A missing capability was found.
-                    #
-                    # Stop immediately rather than
-                    # pretending the research can continue.
+                    # Stop immediately when a capability
+                    # cannot actually be executed.
 
                     if self.capability_gaps:
 
@@ -539,8 +653,8 @@ class TaskExecutor:
 
                         raise RuntimeError(
                             "Research run is blocked "
-                            "because required tools "
-                            "are unavailable."
+                            "because required executable "
+                            "capabilities are unavailable."
                         )
 
             # -----------------------------------------
@@ -559,7 +673,7 @@ class TaskExecutor:
 
                 raise RuntimeError(
                     "Research run is blocked by "
-                    "missing capabilities."
+                    "missing executable capabilities."
                 )
 
         # -----------------------------------------
@@ -586,8 +700,8 @@ class TaskExecutor:
         self,
     ) -> None:
         """
-        Print all capability gaps detected
-        during the current research run.
+        Print capability gaps, reused definitions,
+        and newly generated specifications.
         """
 
         print(
@@ -609,6 +723,40 @@ class TaskExecutor:
                     f"  - {tool_name}"
                 )
 
+        # -----------------------------------------
+        # Known Definitions
+        # -----------------------------------------
+
+        if self.reused_tool_definitions:
+
+            print(
+                "\n=== REUSED TOOL DEFINITIONS ==="
+            )
+
+            for (
+                capability,
+                definition,
+            ) in self.reused_tool_definitions.items():
+
+                print(
+                    f"\nCapability: "
+                    f"{capability}"
+                )
+
+                print(
+                    f"Tool: "
+                    f"{definition.name}"
+                )
+
+                print(
+                    f"Status: "
+                    f"{definition.status}"
+                )
+
+        # -----------------------------------------
+        # Generated Specifications
+        # -----------------------------------------
+
         if self.generated_tool_specs:
 
             print(
@@ -617,12 +765,18 @@ class TaskExecutor:
             )
 
             for (
-                tool_name,
+                capability,
                 tool,
             ) in self.generated_tool_specs.items():
 
                 print(
-                    f"\nTool: {tool.name}"
+                    f"\nCapability: "
+                    f"{capability}"
+                )
+
+                print(
+                    f"Tool: "
+                    f"{tool.name}"
                 )
 
                 print(
@@ -645,11 +799,16 @@ class TaskExecutor:
                     f"{tool.outputs}"
                 )
 
+                print(
+                    f"Dependencies: "
+                    f"{tool.dependencies}"
+                )
+
 
 class CapabilityGapError(Exception):
     """
-    Raised when a research task requires tools
-    that are not currently available.
+    Raised when a research task requires capabilities
+    that cannot currently be executed.
     """
 
     def __init__(
@@ -660,7 +819,9 @@ class CapabilityGapError(Exception):
 
         message = (
             "Missing required tools: "
-            + ", ".join(missing_tools)
+            + ", ".join(
+                missing_tools
+            )
         )
 
         super().__init__(
