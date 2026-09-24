@@ -1,13 +1,29 @@
 from config.settings import MONGO_URL
 
-from storage.database.mongo import MongoDatabase
+from agents.task_executor import TaskExecutor
 
-from tools.builder import (
-    ToolBuildRequest,
-    ToolBuilder,
+from storage.database.mongo import MongoDatabase
+from storage.models.research import (
+    ResearchRun,
+    ResearchTask,
+    ToolDefinition,
 )
 
 from tools.registry import ToolRegistry
+
+
+class FailingToolBuilder:
+    """
+    Test double used to prove that TaskExecutor does
+    not invoke the Tool Builder when a matching
+    persistent definition already exists.
+    """
+
+    def build(self, request):
+        raise AssertionError(
+            "ToolBuilder should not be called when "
+            "a matching tool definition already exists."
+        )
 
 
 def main():
@@ -22,27 +38,42 @@ def main():
     )
 
     # -----------------------------------------
-    # Create a tool definition
+    # Create a Known Tool Definition
     # -----------------------------------------
 
-    builder = ToolBuilder()
+    capability = "dataset_download"
 
-    request = ToolBuildRequest(
-        capability="experiment_design",
-        reason=(
-            "AURA requires a capability for "
-            "designing reproducible experiments."
+    definition = ToolDefinition(
+        tool_id="DatasetDownloader",
+        name="DatasetDownloader",
+        capability=capability,
+        description=(
+            "Downloads datasets from remote sources."
         ),
-    )
-
-    generated_tool = builder.build(
-        request
-    )
-
-    definition = (
-        builder.to_tool_definition(
-            generated_tool
-        )
+        purpose=(
+            "Provides AURA with a reusable dataset "
+            "download capability."
+        ),
+        input_schema={
+            "inputs": [
+                "source_url",
+                "destination_path",
+            ]
+        },
+        output_schema={
+            "outputs": [
+                "local_path",
+                "download_status",
+            ]
+        },
+        dependencies=[
+            "requests>=2.28.0",
+        ],
+        validation_requirements=[
+            "Verify downloaded file exists.",
+            "Verify checksum when provided.",
+        ],
+        status="draft",
     )
 
     database.save_tool(
@@ -58,7 +89,43 @@ def main():
     )
 
     # -----------------------------------------
-    # Create a fresh registry
+    # Create Research Run
+    # -----------------------------------------
+
+    run = ResearchRun(
+        run_id="test_reuse_run",
+        research_question=(
+            "Test capability-aware tool reuse."
+        ),
+        status="planned",
+    )
+
+    database.save_research_run(
+        run
+    )
+
+    # -----------------------------------------
+    # Create Research Task
+    # -----------------------------------------
+
+    task = ResearchTask(
+        task_id="reuse_task_001",
+        description=(
+            "Download a benchmark dataset."
+        ),
+        task_type="data_acquisition",
+        dependencies=[],
+        required_tools=[
+            capability
+        ],
+    )
+
+    database.save_research_task(
+        task
+    )
+
+    # -----------------------------------------
+    # Create Registry
     # -----------------------------------------
 
     registry = ToolRegistry(
@@ -66,10 +133,8 @@ def main():
     )
 
     # -----------------------------------------
-    # Search by capability
+    # Verify Definition Exists
     # -----------------------------------------
-
-    capability = "experiment_design"
 
     found = (
         registry.find_definition_by_capability(
@@ -78,7 +143,7 @@ def main():
     )
 
     print(
-        "\n=== CAPABILITY LOOKUP ==="
+        "\n=== PERSISTED CAPABILITY ==="
     )
 
     print(
@@ -88,12 +153,9 @@ def main():
 
     if found is None:
 
-        print(
-            "No matching tool definition found."
-        )
-
         raise RuntimeError(
-            "Tool reuse lookup failed."
+            "Expected persisted tool definition "
+            "was not found."
         )
 
     print(
@@ -105,29 +167,144 @@ def main():
     )
 
     # -----------------------------------------
-    # Test unknown capability
+    # Create Executor
     # -----------------------------------------
 
-    unknown = (
-        registry.find_definition_by_capability(
-            "completely_unknown_capability"
-        )
+    executor = TaskExecutor(
+        tasks=[task],
+        database=database,
+        run_id="test_reuse_run",
+        tool_registry=registry,
     )
 
-    if unknown is not None:
+    # Replace the real Tool Builder with a test
+    # implementation that fails if called.
+
+    executor.tool_builder = (
+        FailingToolBuilder()
+    )
+
+    # -----------------------------------------
+    # Execute Task
+    # -----------------------------------------
+
+    print(
+        "\n=== TASK EXECUTION ==="
+    )
+
+    completed = executor.execute_task(
+        task
+    )
+
+    # -----------------------------------------
+    # Verify Task Was Blocked
+    # -----------------------------------------
+
+    if completed:
 
         raise RuntimeError(
-            "Unknown capability incorrectly "
-            "matched an existing tool."
+            "Task incorrectly completed even though "
+            "the known tool definition is not executable."
         )
 
+    # -----------------------------------------
+    # Verify Reuse
+    # -----------------------------------------
+
+    if capability not in (
+        executor.reused_tool_definitions
+    ):
+
+        raise RuntimeError(
+            "Existing tool definition was not "
+            "recorded as reused."
+        )
+
+    reused = (
+        executor.reused_tool_definitions[
+            capability
+        ]
+    )
+
+    if reused.name != definition.name:
+
+        raise RuntimeError(
+            "Incorrect tool definition was reused."
+        )
+
+    # -----------------------------------------
+    # Verify Builder Was Not Called
+    # -----------------------------------------
+
+    if executor.generated_tool_specs:
+
+        raise RuntimeError(
+            "A new tool specification was generated "
+            "even though a matching definition already existed."
+        )
+
+    # -----------------------------------------
+    # Verify Task Status
+    # -----------------------------------------
+
+    stored_task = (
+        database.get_research_task(
+            task.task_id
+        )
+    )
+
+    if stored_task is None:
+
+        raise RuntimeError(
+            "Research task was not persisted."
+        )
+
+    if stored_task.status != "blocked":
+
+        raise RuntimeError(
+            "Task should be blocked because the "
+            "known definition is not executable."
+        )
+
+    # -----------------------------------------
+    # Verify Run Status
+    # -----------------------------------------
+
+    stored_run = (
+        database.get_research_run(
+            "test_reuse_run"
+        )
+    )
+
+    if stored_run is None:
+
+        raise RuntimeError(
+            "Research run was not persisted."
+        )
+
+    # execute_task() only blocks the task.
+    # TaskExecutor.run() is responsible for setting
+    # the overall research run to blocked.
+
     print(
-        "\nUnknown capability correctly "
-        "returned no match."
+        "\n=== REUSE RESULT ==="
     )
 
     print(
-        "\nTool reuse lookup test passed!"
+        "Existing definition was reused."
+    )
+
+    print(
+        "Tool Builder was not called."
+    )
+
+    print(
+        "Task remained blocked because the "
+        "definition is not executable."
+    )
+
+    print(
+        "\nTool reuse execution test passed!"
     )
 
 
