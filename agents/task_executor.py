@@ -14,14 +14,16 @@ class TaskExecutor:
     """
     Executes research tasks while respecting dependencies,
     detecting missing capabilities, reusing known tool
-    definitions, and invoking the Tool Builder when a
-    capability is completely unknown.
+    definitions, validating executable tools, and invoking
+    the Tool Builder when a capability is completely unknown.
 
     Important distinction:
 
-    - An executable ResearchTool can actually run.
+    - An executable ResearchTool has an implementation.
     - A ToolDefinition is persistent knowledge about a tool.
-    - A persisted ToolDefinition is NOT automatically executable.
+    - A validated ResearchTool has passed validation against
+      its ToolDefinition.
+    - Only validated tools may be executed by AURA.
     """
 
     def __init__(
@@ -77,6 +79,11 @@ class TaskExecutor:
         self.reused_tool_definitions: dict[
             str,
             object,
+        ] = {}
+
+        self.validation_failures: dict[
+            str,
+            list[str],
         ] = {}
 
     def get_ready_tasks(
@@ -203,6 +210,47 @@ class TaskExecutor:
 
             return False
 
+        except ToolValidationError as exc:
+
+            task.status = "blocked"
+
+            self.database.save_research_task(
+                task
+            )
+
+            self.validation_failures[
+                task.task_id
+            ] = exc.failed_tools
+
+            print(
+                f"Blocked: {task.task_id}"
+            )
+
+            print(
+                "Tool validation failures:"
+            )
+
+            for tool_name in (
+                exc.failed_tools
+            ):
+                print(
+                    f"  - {tool_name}"
+                )
+
+            run = self.database.get_research_run(
+                self.run_id
+            )
+
+            if run is not None:
+
+                run.status = "blocked"
+
+                self.database.save_research_run(
+                    run
+                )
+
+            return False
+
         except Exception as exc:
 
             task.status = "failed"
@@ -247,13 +295,20 @@ class TaskExecutor:
         Missing executable tools are first checked against
         persistent tool definitions.
 
+        Existing implementations are validated before
+        execution.
+
         If AURA already knows the capability:
 
             Capability
                  ↓
             Known definition
                  ↓
-            Block until executable implementation exists
+            Implementation
+                 ↓
+            Validation
+                 ↓
+            Execution
 
         If AURA does not know the capability:
 
@@ -438,6 +493,59 @@ class TaskExecutor:
             )
 
         # -----------------------------------------
+        # Validate Required Tools
+        # -----------------------------------------
+
+        validation_failures = []
+
+        for tool_name in task.required_tools:
+
+            if not self.tool_registry.has_validated(
+                tool_name
+            ):
+
+                print(
+                    f"Tool '{tool_name}' has not "
+                    "been validated."
+                )
+
+                result = (
+                    self.tool_registry.validate_tool(
+                        tool_name
+                    )
+                )
+
+                if not result.valid:
+
+                    validation_failures.append(
+                        tool_name
+                    )
+
+                    print(
+                        f"Validation failed for "
+                        f"'{tool_name}'."
+                    )
+
+                    for error in result.errors:
+
+                        print(
+                            f"  - {error}"
+                        )
+
+                else:
+
+                    print(
+                        f"Tool '{tool_name}' "
+                        "validated successfully."
+                    )
+
+        if validation_failures:
+
+            raise ToolValidationError(
+                validation_failures
+            )
+
+        # -----------------------------------------
         # Execute Available Tools
         # -----------------------------------------
 
@@ -447,20 +555,19 @@ class TaskExecutor:
             task.required_tools
         ):
 
-            tool = self.tool_registry.get(
+            tool = self.tool_registry.get_validated(
                 tool_name
             )
 
             if tool is None:
 
-                raise RuntimeError(
-                    f"Tool '{tool_name}' was detected "
-                    "as available but could not be "
-                    "retrieved from the Tool Registry."
+                raise ToolValidationError(
+                    [tool_name]
                 )
 
             print(
-                f"Using tool: {tool_name}"
+                f"Using validated tool: "
+                f"{tool_name}"
             )
 
             result = self._execute_tool(
@@ -486,7 +593,7 @@ class TaskExecutor:
         task: ResearchTask,
     ):
         """
-        Execute one registered tool.
+        Execute one validated registered tool.
 
         Tool inputs are supplied through the task's
         structured tool_inputs field.
@@ -581,8 +688,8 @@ class TaskExecutor:
         A research run is completed only when every
         task actually completes.
 
-        Missing executable capabilities cause the
-        run to become blocked.
+        Missing executable capabilities or failed
+        tool validation cause the run to become blocked.
         """
 
         run = self.database.get_research_run(
@@ -655,6 +762,28 @@ class TaskExecutor:
                     )
 
                 # -----------------------------------------
+                # Validation Failure
+                # -----------------------------------------
+
+                if self.validation_failures:
+
+                    if run is not None:
+
+                        run.status = "blocked"
+
+                        self.database.save_research_run(
+                            run
+                        )
+
+                    self._print_validation_failures()
+
+                    raise RuntimeError(
+                        "Research run is blocked "
+                        "because one or more tools "
+                        "failed validation."
+                    )
+
+                # -----------------------------------------
                 # Unresolved Dependency / Cycle
                 # -----------------------------------------
 
@@ -718,6 +847,24 @@ class TaskExecutor:
                             "capabilities are unavailable."
                         )
 
+                    if self.validation_failures:
+
+                        if run is not None:
+
+                            run.status = "blocked"
+
+                            self.database.save_research_run(
+                                run
+                            )
+
+                        self._print_validation_failures()
+
+                        raise RuntimeError(
+                            "Research run is blocked "
+                            "because one or more tools "
+                            "failed validation."
+                        )
+
             # -----------------------------------------
             # No Progress
             # -----------------------------------------
@@ -733,8 +880,7 @@ class TaskExecutor:
                     )
 
                 raise RuntimeError(
-                    "Research run is blocked by "
-                    "missing executable capabilities."
+                    "Research run is blocked."
                 )
 
         # -----------------------------------------
@@ -865,6 +1011,32 @@ class TaskExecutor:
                     f"{tool.dependencies}"
                 )
 
+    def _print_validation_failures(
+        self,
+    ) -> None:
+        """
+        Print tools that failed validation.
+        """
+
+        print(
+            "\n=== TOOL VALIDATION FAILURES ==="
+        )
+
+        for (
+            task_id,
+            failed_tools,
+        ) in self.validation_failures.items():
+
+            print(
+                f"{task_id}:"
+            )
+
+            for tool_name in failed_tools:
+
+                print(
+                    f"  - {tool_name}"
+                )
+
 
 class CapabilityGapError(Exception):
     """
@@ -882,6 +1054,29 @@ class CapabilityGapError(Exception):
             "Missing required tools: "
             + ", ".join(
                 missing_tools
+            )
+        )
+
+        super().__init__(
+            message
+        )
+
+
+class ToolValidationError(Exception):
+    """
+    Raised when one or more tools fail validation.
+    """
+
+    def __init__(
+        self,
+        failed_tools: list[str],
+    ):
+        self.failed_tools = failed_tools
+
+        message = (
+            "Tool validation failed: "
+            + ", ".join(
+                failed_tools
             )
         )
 

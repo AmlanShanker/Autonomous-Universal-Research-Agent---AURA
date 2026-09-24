@@ -4,22 +4,31 @@ from storage.models.research import ToolDefinition
 from tools.base import ResearchTool
 from tools.implementations import DatasetDownloadTool
 from tools.literature_search import LiteratureSearchTool
+from tools.validator import (
+    ToolValidationResult,
+    ToolValidator,
+)
 
 
 class ToolRegistry:
     """
     Central registry for all tools available to AURA.
 
-    The registry maintains two separate collections:
+    The registry maintains three separate collections:
 
     1. Executable tools
        - Actual ResearchTool implementations.
-       - Safe, registered capabilities that AURA can execute.
 
     2. Tool definitions
        - Persistent specifications stored in MongoDB.
        - These describe tools that AURA knows about.
        - A ToolDefinition is NOT executable code.
+
+    3. Validated tools
+       - Executable implementations that have been
+         validated against their ToolDefinition.
+       - Only validated tools are considered safe for
+         normal research execution.
     """
 
     def __init__(
@@ -33,7 +42,18 @@ class ToolRegistry:
             ToolDefinition,
         ] = {}
 
+        self.validated_tools: dict[
+            str,
+            ResearchTool,
+        ] = {}
+
         self.database = database
+
+        # -----------------------------------------
+        # Tool Validator
+        # -----------------------------------------
+
+        self.validator = ToolValidator()
 
         # -----------------------------------------
         # Register Built-in Executable Tools
@@ -60,6 +80,9 @@ class ToolRegistry:
     ) -> None:
         """
         Register an executable research tool.
+
+        Registration alone does NOT mark the tool
+        as validated.
         """
 
         if tool.name in self.tools:
@@ -95,7 +118,9 @@ class ToolRegistry:
             definition.tool_id
         ] = definition
 
-    def load_definitions(self) -> None:
+    def load_definitions(
+        self,
+    ) -> None:
         """
         Load persisted tool definitions from the database.
 
@@ -124,15 +149,88 @@ class ToolRegistry:
                 definition.tool_id
             ] = definition
 
+    def validate_tool(
+        self,
+        tool_name: str,
+    ) -> ToolValidationResult:
+        """
+        Validate an executable tool against its
+        persistent ToolDefinition.
+
+        A tool must already have both:
+
+        - an executable implementation
+        - a persistent ToolDefinition
+
+        Successful validation adds the implementation
+        to the validated_tools collection.
+        """
+
+        tool = self.get(
+            tool_name
+        )
+
+        if tool is None:
+            raise ValueError(
+                f"Executable tool '{tool_name}' "
+                "is not registered."
+            )
+
+        definition = self.get_definition(
+            tool_name
+        )
+
+        if definition is None:
+            raise ValueError(
+                f"No ToolDefinition exists for "
+                f"executable tool '{tool_name}'."
+            )
+
+        result = self.validator.validate(
+            tool=tool,
+            definition=definition,
+        )
+
+        if result.valid:
+
+            self.validated_tools[
+                tool_name
+            ] = tool
+
+        else:
+
+            self.validated_tools.pop(
+                tool_name,
+                None,
+            )
+
+        return result
+
     def get(
         self,
         tool_name: str,
     ) -> ResearchTool | None:
         """
         Retrieve an executable tool by name.
+
+        This returns the registered implementation,
+        regardless of validation status.
         """
 
         return self.tools.get(
+            tool_name
+        )
+
+    def get_validated(
+        self,
+        tool_name: str,
+    ) -> ResearchTool | None:
+        """
+        Retrieve a tool only if it has successfully
+        passed validation.
+        """
+
+        return self.validated_tools.get(
             tool_name
         )
 
@@ -159,8 +257,8 @@ class ToolRegistry:
 
         The capability is kept separate from the tool name
         because a generated tool may have a human-friendly
-        name such as 'ExperimentDesigner' while the requested
-        capability is 'experiment_design'.
+        name while the requested capability is a machine-
+        readable capability identifier.
         """
 
         capability = capability.strip().lower()
@@ -193,6 +291,17 @@ class ToolRegistry:
 
         return tool_name in self.tools
 
+    def has_validated(
+        self,
+        tool_name: str,
+    ) -> bool:
+        """
+        Check whether an executable tool
+        has successfully passed validation.
+        """
+
+        return tool_name in self.validated_tools
+
     def has_definition(
         self,
         tool_id: str,
@@ -208,18 +317,32 @@ class ToolRegistry:
         self,
     ) -> list[str]:
         """
-        Return the names of all executable tools.
+        Return the names of all registered
+        executable tools.
         """
 
         return list(
             self.tools.keys()
         )
 
+    def list_validated_tools(
+        self,
+    ) -> list[str]:
+        """
+        Return the names of all validated
+        executable tools.
+        """
+
+        return list(
+            self.validated_tools.keys()
+        )
+
     def list_definitions(
         self,
     ) -> list[str]:
         """
-        Return the IDs of all known tool definitions.
+        Return the IDs of all known tool
+        definitions.
         """
 
         return list(
