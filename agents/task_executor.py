@@ -1,16 +1,14 @@
+﻿import uuid
 from agents.capability_gap_detector import (
     CapabilityGapDetector,
 )
-
 from storage.database.base import Database
-
+from storage.models.execution import ExecutionResult
 from storage.models.research import ResearchTask
-
 from tools.builder import (
     ToolBuildRequest,
     ToolBuilder,
 )
-
 from tools.registry import ToolRegistry
 
 
@@ -19,18 +17,9 @@ class TaskExecutor:
     Executes research tasks while respecting dependencies,
     detecting missing capabilities, reusing known tool
     definitions, validating executable tools, selecting
-    usable implementations, and invoking the Tool Builder
-    when a capability is completely unknown.
-
-    Important distinction:
-
-    - An executable ResearchTool has an implementation.
-    - A ToolDefinition is persistent knowledge about a tool.
-    - A ToolImplementation describes one implementation.
-    - A validated ResearchTool has passed validation against
-      its ToolDefinition.
-    - Only validated and active implementations may be
-      executed by AURA.
+    usable implementations, invoking the Tool Builder
+    when a capability is completely unknown, and
+    persisting execution results.
     """
 
     def __init__(
@@ -49,25 +38,13 @@ class TaskExecutor:
         self.run_id = run_id
         self.tool_registry = tool_registry
 
-        # -----------------------------------------
-        # Capability Gap Detector
-        # -----------------------------------------
-
         self.capability_gap_detector = (
             CapabilityGapDetector(
                 tool_registry=tool_registry
             )
         )
 
-        # -----------------------------------------
-        # Tool Builder
-        # -----------------------------------------
-
         self.tool_builder = ToolBuilder()
-
-        # -----------------------------------------
-        # Runtime State
-        # -----------------------------------------
 
         self.completed_tasks: set[str] = set()
 
@@ -134,13 +111,11 @@ class TaskExecutor:
         """
         Execute one research task.
 
-        Returns:
+        Returns True if the task completed successfully.
 
-            True if the task completed successfully.
-
-            False if the task is blocked by a missing
-            executable capability, validation failure,
-            or unusable implementation.
+        Returns False if the task is blocked by a missing
+        executable capability, validation failure, or
+        unusable implementation.
         """
 
         print(
@@ -341,12 +316,6 @@ class TaskExecutor:
         """
         Execute all tools required by a task.
 
-        Missing executable tools are first checked against
-        persistent tool definitions.
-
-        Existing executable tools are validated before
-        implementation selection.
-
         Execution lifecycle:
 
             Capability
@@ -362,25 +331,13 @@ class TaskExecutor:
             Executable Tool Resolution
                  ↓
             Execution
+                 ↓
+            ExecutionResult
+                 ↓
+            Persistent Storage
 
-        If AURA does not know the capability:
-
-            Capability
-                 ↓
-            Tool Builder
-                 ↓
-            Generated specification
-                 ↓
-            Persistent definition
-                 ↓
-            Block until implementation exists
-
-        No generated code is executed here.
+        Generated tool code is not executed.
         """
-
-        # -----------------------------------------
-        # No Tools Required
-        # -----------------------------------------
 
         if not task.required_tools:
             print(
@@ -393,10 +350,6 @@ class TaskExecutor:
                 "task_id": task.task_id,
             }
 
-        # -----------------------------------------
-        # Detect Capability Gaps
-        # -----------------------------------------
-
         gaps = (
             self.capability_gap_detector.detect(
                 task_id=task.task_id,
@@ -405,10 +358,6 @@ class TaskExecutor:
                 ),
             )
         )
-
-        # -----------------------------------------
-        # Resolve Capability Gaps
-        # -----------------------------------------
 
         if gaps:
             unresolved_capabilities = []
@@ -420,10 +369,6 @@ class TaskExecutor:
                     f"Capability gap detected: "
                     f"{capability}"
                 )
-
-                # -----------------------------------------
-                # Check Persistent Tool Knowledge
-                # -----------------------------------------
 
                 existing_definition = (
                     self.tool_registry
@@ -454,20 +399,14 @@ class TaskExecutor:
 
                     continue
 
-                # -----------------------------------------
-                # Build New Tool Specification
-                # -----------------------------------------
-
                 print(
                     f"No known definition found "
                     f"for '{capability}'."
                 )
 
-                build_request = (
-                    ToolBuildRequest(
-                        capability=capability,
-                        reason=gap.reason,
-                    )
+                build_request = ToolBuildRequest(
+                    capability=capability,
+                    reason=gap.reason,
                 )
 
                 generated_tool = (
@@ -476,10 +415,6 @@ class TaskExecutor:
                     )
                 )
 
-                # -----------------------------------------
-                # Convert to Persistent Definition
-                # -----------------------------------------
-
                 tool_definition = (
                     self.tool_builder
                     .to_tool_definition(
@@ -487,18 +422,9 @@ class TaskExecutor:
                     )
                 )
 
-                # -----------------------------------------
-                # Persist Definition
-                # -----------------------------------------
-
                 self.database.save_tool(
                     tool_definition
                 )
-
-                # Register the definition in the
-                # current registry as knowledge.
-                #
-                # This does NOT make it executable.
 
                 if not self.tool_registry.has_definition(
                     tool_definition.tool_id
@@ -530,17 +456,9 @@ class TaskExecutor:
                     capability
                 )
 
-            # -----------------------------------------
-            # Block Until Implementations Exist
-            # -----------------------------------------
-
             raise CapabilityGapError(
                 unresolved_capabilities
             )
-
-        # -----------------------------------------
-        # Validate Required Tools
-        # -----------------------------------------
 
         validation_failures = []
 
@@ -584,10 +502,6 @@ class TaskExecutor:
             raise ToolValidationError(
                 validation_failures
             )
-
-        # -----------------------------------------
-        # Select Executable Implementations
-        # -----------------------------------------
 
         implementation_failures = []
 
@@ -637,10 +551,6 @@ class TaskExecutor:
                 implementation_failures
             )
 
-        # -----------------------------------------
-        # Execute Selected Implementations
-        # -----------------------------------------
-
         results = {}
 
         for tool_name in task.required_tools:
@@ -657,6 +567,7 @@ class TaskExecutor:
             result = self._execute_tool(
                 tool_name=tool_name,
                 tool=tool,
+                implementation=implementation,
                 task=task,
             )
 
@@ -677,91 +588,155 @@ class TaskExecutor:
         self,
         tool_name: str,
         tool,
+        implementation,
         task: ResearchTask,
     ):
         """
         Execute one selected executable tool.
 
-        The selected tool has already been resolved
-        through its ToolImplementation.
+        Every execution creates a persistent
+        ExecutionResult.
 
-        Tool inputs are supplied through the task's
-        structured tool_inputs field.
+        Successful executions are stored with:
+
+            status = "success"
+
+        Failed executions are stored with:
+
+            status = "failed"
+
+        Failed execution results are persisted before
+        the original exception is raised.
         """
 
-        # -----------------------------------------
-        # Literature Search
-        # -----------------------------------------
-
-        if tool_name == "literature_search":
-            tool_inputs = task.tool_inputs.get(
-                tool_name,
-                {},
-            )
-
-            query = tool_inputs.get(
-                "query",
-                task.description,
-            )
-
-            max_results = tool_inputs.get(
-                "max_results",
-                5,
-            )
-
-            return tool.execute(
-                query=query,
-                max_results=max_results,
-            )
-
-        # -----------------------------------------
-        # Dataset Download
-        # -----------------------------------------
-
-        if tool_name == "dataset_download":
-            tool_inputs = task.tool_inputs.get(
-                tool_name,
-                {},
-            )
-
-            source_url = tool_inputs.get(
-                "source_url"
-            )
-
-            destination_path = tool_inputs.get(
-                "destination_path"
-            )
-
-            checksum = tool_inputs.get(
-                "checksum"
-            )
-
-            if not source_url:
-                raise ValueError(
-                    "dataset_download requires "
-                    "'source_url' in task.tool_inputs."
-                )
-
-            if not destination_path:
-                raise ValueError(
-                    "dataset_download requires "
-                    "'destination_path' in task.tool_inputs."
-                )
-
-            return tool.execute(
-                source_url=source_url,
-                destination_path=destination_path,
-                checksum=checksum,
-            )
-
-        # -----------------------------------------
-        # Unknown Adapter
-        # -----------------------------------------
-
-        raise ValueError(
-            f"No execution adapter exists for "
-            f"registered tool '{tool_name}'."
+        result_id = str(
+            uuid.uuid4()
         )
+
+        try:
+            if tool_name == "literature_search":
+                tool_inputs = task.tool_inputs.get(
+                    tool_name,
+                    {},
+                )
+
+                query = tool_inputs.get(
+                    "query",
+                    task.description,
+                )
+
+                max_results = tool_inputs.get(
+                    "max_results",
+                    5,
+                )
+
+                output = tool.execute(
+                    query=query,
+                    max_results=max_results,
+                )
+
+            elif tool_name == "dataset_download":
+                tool_inputs = task.tool_inputs.get(
+                    tool_name,
+                    {},
+                )
+
+                source_url = tool_inputs.get(
+                    "source_url"
+                )
+
+                destination_path = tool_inputs.get(
+                    "destination_path"
+                )
+
+                checksum = tool_inputs.get(
+                    "checksum"
+                )
+
+                if not source_url:
+                    raise ValueError(
+                        "dataset_download requires "
+                        "'source_url' in task.tool_inputs."
+                    )
+
+                if not destination_path:
+                    raise ValueError(
+                        "dataset_download requires "
+                        "'destination_path' in task.tool_inputs."
+                    )
+
+                output = tool.execute(
+                    source_url=source_url,
+                    destination_path=destination_path,
+                    checksum=checksum,
+                )
+
+            else:
+                raise ValueError(
+                    f"No execution adapter exists for "
+                    f"registered tool '{tool_name}'."
+                )
+
+        except Exception as exc:
+            failed_result = ExecutionResult(
+                result_id=result_id,
+                run_id=self.run_id,
+                task_id=task.task_id,
+                tool_id=tool_name,
+                implementation_id=(
+                    implementation.implementation_id
+                ),
+                implementation_version=(
+                    implementation.version
+                ),
+                status="failed",
+                output={
+                    "error": str(exc),
+                },
+                metadata={
+                    "execution_type": "tool",
+                },
+            )
+
+            self.database.save_execution_result(
+                failed_result
+            )
+
+            print(
+                f"Failed execution result persisted: "
+                f"{result_id}"
+            )
+
+            raise
+
+        execution_result = ExecutionResult(
+            result_id=result_id,
+            run_id=self.run_id,
+            task_id=task.task_id,
+            tool_id=tool_name,
+            implementation_id=(
+                implementation.implementation_id
+            ),
+            implementation_version=(
+                implementation.version
+            ),
+            status="success",
+            output=output,
+            metadata={
+                "execution_type": "tool",
+            },
+        )
+
+        self.database.save_execution_result(
+            execution_result
+        )
+
+        print(
+            f"Execution result persisted: "
+            f"{result_id}"
+        )
+
+        return output
 
     def run(
         self,
@@ -781,20 +756,12 @@ class TaskExecutor:
             self.run_id
         )
 
-        # -----------------------------------------
-        # Start Run
-        # -----------------------------------------
-
         if run is not None:
             run.status = "running"
 
             self.database.save_research_run(
                 run
             )
-
-        # -----------------------------------------
-        # Execute Task Graph
-        # -----------------------------------------
 
         while len(
             self.completed_tasks
@@ -803,10 +770,6 @@ class TaskExecutor:
             ready_tasks = (
                 self.get_ready_tasks()
             )
-
-            # -----------------------------------------
-            # No Ready Tasks
-            # -----------------------------------------
 
             if not ready_tasks:
                 incomplete_tasks = [
@@ -821,10 +784,6 @@ class TaskExecutor:
                         "blocked",
                     }
                 ]
-
-                # -----------------------------------------
-                # Capability Gap
-                # -----------------------------------------
 
                 if self.capability_gaps:
                     if run is not None:
@@ -842,10 +801,6 @@ class TaskExecutor:
                         "capabilities are unavailable."
                     )
 
-                # -----------------------------------------
-                # Validation Failure
-                # -----------------------------------------
-
                 if self.validation_failures:
                     if run is not None:
                         run.status = "blocked"
@@ -861,10 +816,6 @@ class TaskExecutor:
                         "because one or more tools "
                         "failed validation."
                     )
-
-                # -----------------------------------------
-                # Implementation Failure
-                # -----------------------------------------
 
                 if self.implementation_failures:
                     if run is not None:
@@ -882,10 +833,6 @@ class TaskExecutor:
                         "tool implementations are "
                         "unavailable."
                     )
-
-                # -----------------------------------------
-                # Unresolved Dependency / Cycle
-                # -----------------------------------------
 
                 if incomplete_tasks:
                     if run is not None:
@@ -906,10 +853,6 @@ class TaskExecutor:
 
             progress_made = False
 
-            # -----------------------------------------
-            # Execute Ready Tasks
-            # -----------------------------------------
-
             for task in ready_tasks:
                 completed = self.execute_task(
                     task
@@ -919,9 +862,6 @@ class TaskExecutor:
                     progress_made = True
 
                 else:
-                    # Stop immediately when a capability
-                    # cannot actually be executed.
-
                     if self.capability_gaps:
                         if run is not None:
                             run.status = "blocked"
@@ -971,10 +911,6 @@ class TaskExecutor:
                             "unavailable."
                         )
 
-            # -----------------------------------------
-            # No Progress
-            # -----------------------------------------
-
             if not progress_made:
                 if run is not None:
                     run.status = "blocked"
@@ -987,10 +923,6 @@ class TaskExecutor:
                     "Research run is blocked."
                 )
 
-        # -----------------------------------------
-        # Final Run State
-        # -----------------------------------------
-
         run = self.database.get_research_run(
             self.run_id
         )
@@ -999,7 +931,6 @@ class TaskExecutor:
             if len(
                 self.completed_tasks
             ) == len(self.tasks):
-
                 run.status = "completed"
 
                 self.database.save_research_run(
@@ -1032,10 +963,6 @@ class TaskExecutor:
                     f"  - {tool_name}"
                 )
 
-        # -----------------------------------------
-        # Known Definitions
-        # -----------------------------------------
-
         if self.reused_tool_definitions:
             print(
                 "\n=== REUSED TOOL DEFINITIONS ==="
@@ -1060,10 +987,6 @@ class TaskExecutor:
                     f"Status: "
                     f"{definition.status}"
                 )
-
-        # -----------------------------------------
-        # Generated Specifications
-        # -----------------------------------------
 
         if self.generated_tool_specs:
             print(
