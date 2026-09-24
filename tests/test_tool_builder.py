@@ -20,27 +20,45 @@ def main():
         request
     )
 
-    print("=== GENERATED TOOL ===")
-
     print(
-        f"Name: {tool.name}"
+        "\n=== GENERATED TOOL SPECIFICATION ==="
     )
 
     print(
-        f"Description: {tool.description}"
+        f"\nName:\n{tool.name}"
     )
 
     print(
-        f"Purpose: {tool.purpose}"
+        f"\nDescription:\n{tool.description}"
     )
 
     print(
-        f"Inputs: {tool.inputs}"
+        f"\nPurpose:\n{tool.purpose}"
     )
 
     print(
-        f"Outputs: {tool.outputs}"
+        f"\nInputs:\n{tool.inputs}"
     )
+
+    print(
+        f"\nOutputs:\n{tool.outputs}"
+    )
+
+    print(
+        f"\nDependencies:\n{tool.dependencies}"
+    )
+
+    print(
+        "\nValidation Requirements:"
+    )
+
+    for requirement in (
+        tool.validation_requirements
+    ):
+
+        print(
+            f"- {requirement}"
+        )
 
 
 if __name__ == "__main__":
