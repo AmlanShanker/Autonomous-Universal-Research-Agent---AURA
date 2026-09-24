@@ -1,12 +1,16 @@
-from agents.capability_gap_detector import CapabilityGapDetector
+from agents.capability_gap_detector import (
+    CapabilityGapDetector,
+)
 
 from storage.database.base import Database
+
 from storage.models.research import ResearchTask
 
 from tools.builder import (
     ToolBuildRequest,
     ToolBuilder,
 )
+
 from tools.registry import ToolRegistry
 
 
@@ -14,16 +18,19 @@ class TaskExecutor:
     """
     Executes research tasks while respecting dependencies,
     detecting missing capabilities, reusing known tool
-    definitions, validating executable tools, and invoking
-    the Tool Builder when a capability is completely unknown.
+    definitions, validating executable tools, selecting
+    usable implementations, and invoking the Tool Builder
+    when a capability is completely unknown.
 
     Important distinction:
 
     - An executable ResearchTool has an implementation.
     - A ToolDefinition is persistent knowledge about a tool.
+    - A ToolImplementation describes one implementation.
     - A validated ResearchTool has passed validation against
       its ToolDefinition.
-    - Only validated tools may be executed by AURA.
+    - Only validated and active implementations may be
+      executed by AURA.
     """
 
     def __init__(
@@ -86,6 +93,16 @@ class TaskExecutor:
             list[str],
         ] = {}
 
+        self.implementation_failures: dict[
+            str,
+            list[str],
+        ] = {}
+
+        self.selected_implementations: dict[
+            str,
+            str,
+        ] = {}
+
     def get_ready_tasks(
         self,
     ) -> list[ResearchTask]:
@@ -97,7 +114,6 @@ class TaskExecutor:
         ready_tasks = []
 
         for task in self.tasks.values():
-
             if task.status != "pending":
                 continue
 
@@ -122,8 +138,9 @@ class TaskExecutor:
 
             True if the task completed successfully.
 
-            False if the task is blocked by a
-            missing executable capability.
+            False if the task is blocked by a missing
+            executable capability, validation failure,
+            or unusable implementation.
         """
 
         print(
@@ -138,7 +155,6 @@ class TaskExecutor:
         )
 
         try:
-
             result = self._execute_task_logic(
                 task
             )
@@ -162,7 +178,6 @@ class TaskExecutor:
             )
 
             if run is not None:
-
                 if (
                     task.task_id
                     not in run.completed_tasks
@@ -182,7 +197,6 @@ class TaskExecutor:
             return True
 
         except CapabilityGapError as exc:
-
             task.status = "blocked"
 
             self.database.save_research_task(
@@ -211,7 +225,6 @@ class TaskExecutor:
             return False
 
         except ToolValidationError as exc:
-
             task.status = "blocked"
 
             self.database.save_research_task(
@@ -242,7 +255,45 @@ class TaskExecutor:
             )
 
             if run is not None:
+                run.status = "blocked"
 
+                self.database.save_research_run(
+                    run
+                )
+
+            return False
+
+        except ToolImplementationError as exc:
+            task.status = "blocked"
+
+            self.database.save_research_task(
+                task
+            )
+
+            self.implementation_failures[
+                task.task_id
+            ] = exc.failed_tools
+
+            print(
+                f"Blocked: {task.task_id}"
+            )
+
+            print(
+                "Tool implementation failures:"
+            )
+
+            for tool_name in (
+                exc.failed_tools
+            ):
+                print(
+                    f"  - {tool_name}"
+                )
+
+            run = self.database.get_research_run(
+                self.run_id
+            )
+
+            if run is not None:
                 run.status = "blocked"
 
                 self.database.save_research_run(
@@ -252,7 +303,6 @@ class TaskExecutor:
             return False
 
         except Exception as exc:
-
             task.status = "failed"
 
             self.database.save_research_task(
@@ -264,7 +314,6 @@ class TaskExecutor:
             )
 
             if run is not None:
-
                 if (
                     task.task_id
                     not in run.failed_tasks
@@ -295,18 +344,22 @@ class TaskExecutor:
         Missing executable tools are first checked against
         persistent tool definitions.
 
-        Existing implementations are validated before
-        execution.
+        Existing executable tools are validated before
+        implementation selection.
 
-        If AURA already knows the capability:
+        Execution lifecycle:
 
             Capability
                  ↓
-            Known definition
+            ToolDefinition
                  ↓
-            Implementation
+            ToolImplementation
                  ↓
             Validation
+                 ↓
+            Implementation Selection
+                 ↓
+            Executable Tool Resolution
                  ↓
             Execution
 
@@ -330,7 +383,6 @@ class TaskExecutor:
         # -----------------------------------------
 
         if not task.required_tools:
-
             print(
                 f"No tools required for "
                 f"'{task.task_id}'."
@@ -359,14 +411,10 @@ class TaskExecutor:
         # -----------------------------------------
 
         if gaps:
-
             unresolved_capabilities = []
 
             for gap in gaps:
-
-                capability = (
-                    gap.capability
-                )
+                capability = gap.capability
 
                 print(
                     f"Capability gap detected: "
@@ -385,7 +433,6 @@ class TaskExecutor:
                 )
 
                 if existing_definition is not None:
-
                     self.reused_tool_definitions[
                         capability
                     ] = existing_definition
@@ -456,7 +503,6 @@ class TaskExecutor:
                 if not self.tool_registry.has_definition(
                     tool_definition.tool_id
                 ):
-
                     self.tool_registry.register_definition(
                         tool_definition
                     )
@@ -499,11 +545,9 @@ class TaskExecutor:
         validation_failures = []
 
         for tool_name in task.required_tools:
-
             if not self.tool_registry.has_validated(
                 tool_name
             ):
-
                 print(
                     f"Tool '{tool_name}' has not "
                     "been validated."
@@ -516,7 +560,6 @@ class TaskExecutor:
                 )
 
                 if not result.valid:
-
                     validation_failures.append(
                         tool_name
                     )
@@ -527,47 +570,88 @@ class TaskExecutor:
                     )
 
                     for error in result.errors:
-
                         print(
                             f"  - {error}"
                         )
 
                 else:
-
                     print(
                         f"Tool '{tool_name}' "
                         "validated successfully."
                     )
 
         if validation_failures:
-
             raise ToolValidationError(
                 validation_failures
             )
 
         # -----------------------------------------
-        # Execute Available Tools
+        # Select Executable Implementations
+        # -----------------------------------------
+
+        implementation_failures = []
+
+        selected_tools = {}
+
+        for tool_name in task.required_tools:
+            resolved = (
+                self.tool_registry
+                .get_executable_implementation(
+                    tool_name
+                )
+            )
+
+            if resolved is None:
+                implementation_failures.append(
+                    tool_name
+                )
+
+                print(
+                    f"No usable executable "
+                    f"implementation found for "
+                    f"'{tool_name}'."
+                )
+
+                continue
+
+            implementation, tool = resolved
+
+            self.selected_implementations[
+                tool_name
+            ] = implementation.implementation_id
+
+            selected_tools[
+                tool_name
+            ] = (
+                implementation,
+                tool,
+            )
+
+            print(
+                f"Selected implementation: "
+                f"{implementation.implementation_id}"
+            )
+
+        if implementation_failures:
+            raise ToolImplementationError(
+                implementation_failures
+            )
+
+        # -----------------------------------------
+        # Execute Selected Implementations
         # -----------------------------------------
 
         results = {}
 
-        for tool_name in (
-            task.required_tools
-        ):
-
-            tool = self.tool_registry.get_validated(
+        for tool_name in task.required_tools:
+            implementation, tool = selected_tools[
                 tool_name
-            )
-
-            if tool is None:
-
-                raise ToolValidationError(
-                    [tool_name]
-                )
+            ]
 
             print(
-                f"Using validated tool: "
-                f"{tool_name}"
+                f"Using implementation "
+                f"'{implementation.implementation_id}' "
+                f"for tool '{tool_name}'."
             )
 
             result = self._execute_tool(
@@ -584,6 +668,9 @@ class TaskExecutor:
             "status": "completed",
             "task_id": task.task_id,
             "tools": results,
+            "implementations": (
+                self.selected_implementations.copy()
+            ),
         }
 
     def _execute_tool(
@@ -593,14 +680,13 @@ class TaskExecutor:
         task: ResearchTask,
     ):
         """
-        Execute one validated registered tool.
+        Execute one selected executable tool.
+
+        The selected tool has already been resolved
+        through its ToolImplementation.
 
         Tool inputs are supplied through the task's
         structured tool_inputs field.
-
-        This prevents AURA from having to infer
-        machine-readable parameters from natural-language
-        task descriptions.
         """
 
         # -----------------------------------------
@@ -608,7 +694,6 @@ class TaskExecutor:
         # -----------------------------------------
 
         if tool_name == "literature_search":
-
             tool_inputs = task.tool_inputs.get(
                 tool_name,
                 {},
@@ -634,7 +719,6 @@ class TaskExecutor:
         # -----------------------------------------
 
         if tool_name == "dataset_download":
-
             tool_inputs = task.tool_inputs.get(
                 tool_name,
                 {},
@@ -688,8 +772,9 @@ class TaskExecutor:
         A research run is completed only when every
         task actually completes.
 
-        Missing executable capabilities or failed
-        tool validation cause the run to become blocked.
+        Missing executable capabilities, failed
+        validation, or unavailable implementations
+        cause the run to become blocked.
         """
 
         run = self.database.get_research_run(
@@ -701,7 +786,6 @@ class TaskExecutor:
         # -----------------------------------------
 
         if run is not None:
-
             run.status = "running"
 
             self.database.save_research_run(
@@ -725,7 +809,6 @@ class TaskExecutor:
             # -----------------------------------------
 
             if not ready_tasks:
-
                 incomplete_tasks = [
                     task
                     for task in (
@@ -744,9 +827,7 @@ class TaskExecutor:
                 # -----------------------------------------
 
                 if self.capability_gaps:
-
                     if run is not None:
-
                         run.status = "blocked"
 
                         self.database.save_research_run(
@@ -766,9 +847,7 @@ class TaskExecutor:
                 # -----------------------------------------
 
                 if self.validation_failures:
-
                     if run is not None:
-
                         run.status = "blocked"
 
                         self.database.save_research_run(
@@ -784,13 +863,32 @@ class TaskExecutor:
                     )
 
                 # -----------------------------------------
+                # Implementation Failure
+                # -----------------------------------------
+
+                if self.implementation_failures:
+                    if run is not None:
+                        run.status = "blocked"
+
+                        self.database.save_research_run(
+                            run
+                        )
+
+                    self._print_implementation_failures()
+
+                    raise RuntimeError(
+                        "Research run is blocked "
+                        "because one or more required "
+                        "tool implementations are "
+                        "unavailable."
+                    )
+
+                # -----------------------------------------
                 # Unresolved Dependency / Cycle
                 # -----------------------------------------
 
                 if incomplete_tasks:
-
                     if run is not None:
-
                         run.status = "failed"
 
                         self.database.save_research_run(
@@ -813,26 +911,19 @@ class TaskExecutor:
             # -----------------------------------------
 
             for task in ready_tasks:
-
-                completed = (
-                    self.execute_task(
-                        task
-                    )
+                completed = self.execute_task(
+                    task
                 )
 
                 if completed:
-
                     progress_made = True
 
                 else:
-
                     # Stop immediately when a capability
                     # cannot actually be executed.
 
                     if self.capability_gaps:
-
                         if run is not None:
-
                             run.status = "blocked"
 
                             self.database.save_research_run(
@@ -848,9 +939,7 @@ class TaskExecutor:
                         )
 
                     if self.validation_failures:
-
                         if run is not None:
-
                             run.status = "blocked"
 
                             self.database.save_research_run(
@@ -865,14 +954,29 @@ class TaskExecutor:
                             "failed validation."
                         )
 
+                    if self.implementation_failures:
+                        if run is not None:
+                            run.status = "blocked"
+
+                            self.database.save_research_run(
+                                run
+                            )
+
+                        self._print_implementation_failures()
+
+                        raise RuntimeError(
+                            "Research run is blocked "
+                            "because one or more required "
+                            "tool implementations are "
+                            "unavailable."
+                        )
+
             # -----------------------------------------
             # No Progress
             # -----------------------------------------
 
             if not progress_made:
-
                 if run is not None:
-
                     run.status = "blocked"
 
                     self.database.save_research_run(
@@ -892,7 +996,6 @@ class TaskExecutor:
         )
 
         if run is not None:
-
             if len(
                 self.completed_tasks
             ) == len(self.tasks):
@@ -925,7 +1028,6 @@ class TaskExecutor:
             )
 
             for tool_name in missing_tools:
-
                 print(
                     f"  - {tool_name}"
                 )
@@ -935,7 +1037,6 @@ class TaskExecutor:
         # -----------------------------------------
 
         if self.reused_tool_definitions:
-
             print(
                 "\n=== REUSED TOOL DEFINITIONS ==="
             )
@@ -965,7 +1066,6 @@ class TaskExecutor:
         # -----------------------------------------
 
         if self.generated_tool_specs:
-
             print(
                 "\n=== GENERATED TOOL "
                 "SPECIFICATIONS ==="
@@ -1032,7 +1132,32 @@ class TaskExecutor:
             )
 
             for tool_name in failed_tools:
+                print(
+                    f"  - {tool_name}"
+                )
 
+    def _print_implementation_failures(
+        self,
+    ) -> None:
+        """
+        Print tools for which no executable
+        implementation could be resolved.
+        """
+
+        print(
+            "\n=== TOOL IMPLEMENTATION FAILURES ==="
+        )
+
+        for (
+            task_id,
+            failed_tools,
+        ) in self.implementation_failures.items():
+
+            print(
+                f"{task_id}:"
+            )
+
+            for tool_name in failed_tools:
                 print(
                     f"  - {tool_name}"
                 )
@@ -1075,6 +1200,30 @@ class ToolValidationError(Exception):
 
         message = (
             "Tool validation failed: "
+            + ", ".join(
+                failed_tools
+            )
+        )
+
+        super().__init__(
+            message
+        )
+
+
+class ToolImplementationError(Exception):
+    """
+    Raised when one or more required tools do not
+    have a usable executable implementation.
+    """
+
+    def __init__(
+        self,
+        failed_tools: list[str],
+    ):
+        self.failed_tools = failed_tools
+
+        message = (
+            "Tool implementation unavailable: "
             + ", ".join(
                 failed_tools
             )
