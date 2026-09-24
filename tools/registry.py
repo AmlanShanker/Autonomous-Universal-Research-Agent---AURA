@@ -2,6 +2,7 @@ from storage.database.base import Database
 from storage.models.research import ToolDefinition
 
 from tools.base import ResearchTool
+from tools.implementations import DatasetDownloadTool
 from tools.literature_search import LiteratureSearchTool
 
 
@@ -34,12 +35,22 @@ class ToolRegistry:
 
         self.database = database
 
-        # Register built-in executable tools.
+        # -----------------------------------------
+        # Register Built-in Executable Tools
+        # -----------------------------------------
+
         self.register(
             LiteratureSearchTool()
         )
 
-        # Load persisted tool definitions.
+        self.register(
+            DatasetDownloadTool()
+        )
+
+        # -----------------------------------------
+        # Load Persisted Tool Definitions
+        # -----------------------------------------
+
         if self.database is not None:
             self.load_definitions()
 

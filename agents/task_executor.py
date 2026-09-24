@@ -7,7 +7,6 @@ from tools.builder import (
     ToolBuildRequest,
     ToolBuilder,
 )
-
 from tools.registry import ToolRegistry
 
 
@@ -113,7 +112,9 @@ class TaskExecutor:
         Execute one research task.
 
         Returns:
+
             True if the task completed successfully.
+
             False if the task is blocked by a
             missing executable capability.
         """
@@ -159,7 +160,6 @@ class TaskExecutor:
                     task.task_id
                     not in run.completed_tasks
                 ):
-
                     run.completed_tasks.append(
                         task.task_id
                     )
@@ -197,7 +197,6 @@ class TaskExecutor:
             for tool_name in (
                 exc.missing_tools
             ):
-
                 print(
                     f"  - {tool_name}"
                 )
@@ -222,7 +221,6 @@ class TaskExecutor:
                     task.task_id
                     not in run.failed_tasks
                 ):
-
                     run.failed_tasks.append(
                         task.task_id
                     )
@@ -490,21 +488,84 @@ class TaskExecutor:
         """
         Execute one registered tool.
 
-        Currently only the literature search tool
-        has an execution adapter.
+        Tool inputs are supplied through the task's
+        structured tool_inputs field.
 
-        More tool adapters will be added as AURA
-        gains capabilities.
+        This prevents AURA from having to infer
+        machine-readable parameters from natural-language
+        task descriptions.
         """
+
+        # -----------------------------------------
+        # Literature Search
+        # -----------------------------------------
 
         if tool_name == "literature_search":
 
-            query = task.description
+            tool_inputs = task.tool_inputs.get(
+                tool_name,
+                {},
+            )
+
+            query = tool_inputs.get(
+                "query",
+                task.description,
+            )
+
+            max_results = tool_inputs.get(
+                "max_results",
+                5,
+            )
 
             return tool.execute(
                 query=query,
-                max_results=5,
+                max_results=max_results,
             )
+
+        # -----------------------------------------
+        # Dataset Download
+        # -----------------------------------------
+
+        if tool_name == "dataset_download":
+
+            tool_inputs = task.tool_inputs.get(
+                tool_name,
+                {},
+            )
+
+            source_url = tool_inputs.get(
+                "source_url"
+            )
+
+            destination_path = tool_inputs.get(
+                "destination_path"
+            )
+
+            checksum = tool_inputs.get(
+                "checksum"
+            )
+
+            if not source_url:
+                raise ValueError(
+                    "dataset_download requires "
+                    "'source_url' in task.tool_inputs."
+                )
+
+            if not destination_path:
+                raise ValueError(
+                    "dataset_download requires "
+                    "'destination_path' in task.tool_inputs."
+                )
+
+            return tool.execute(
+                source_url=source_url,
+                destination_path=destination_path,
+                checksum=checksum,
+            )
+
+        # -----------------------------------------
+        # Unknown Adapter
+        # -----------------------------------------
 
         raise ValueError(
             f"No execution adapter exists for "
