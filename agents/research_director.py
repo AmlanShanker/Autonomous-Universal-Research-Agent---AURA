@@ -12,8 +12,11 @@ class ResearchDirector:
     """
     Coordinates a research request from planning to execution.
 
-    The director uses an LLM to generate the research plan,
-    then converts that plan into executable research tasks.
+    The director uses an LLM to:
+    1. Create a research plan.
+    2. Create a dynamic research task graph.
+
+    The director does not perform the research itself.
     """
 
     def __init__(
@@ -30,7 +33,8 @@ class ResearchDirector:
         """
 
         prompt = f"""
-You are the Research Director of an autonomous research system called AURA.
+You are the Research Director of an autonomous research system
+called AURA.
 
 Create a structured research plan for this question:
 
@@ -44,24 +48,19 @@ The JSON must contain exactly these fields:
     "question": "the original research question",
     "objectives": [
         "objective 1",
-        "objective 2",
-        "objective 3"
+        "objective 2"
     ],
     "hypotheses": [
-        "hypothesis 1",
-        "hypothesis 2"
+        "hypothesis 1"
     ],
     "required_capabilities": [
-        "capability 1",
-        "capability 2"
+        "capability 1"
     ],
     "experiments": [
-        "experiment 1",
-        "experiment 2"
+        "experiment 1"
     ],
     "success_criteria": [
-        "criterion 1",
-        "criterion 2"
+        "criterion 1"
     ]
 }}
 
@@ -92,11 +91,99 @@ Requirements:
 
         return plan
 
+    def create_tasks(
+        self,
+        plan: ResearchPlan,
+    ) -> list[ResearchTask]:
+        """
+        Generate an executable research task graph using the LLM.
+        """
+
+        prompt = f"""
+You are the task-planning component of an autonomous research
+system called AURA.
+
+Create an executable research task graph for this research plan.
+
+Research question:
+{plan.question}
+
+Objectives:
+{json.dumps(plan.objectives, indent=2)}
+
+Hypotheses:
+{json.dumps(plan.hypotheses, indent=2)}
+
+Required capabilities:
+{json.dumps(plan.required_capabilities, indent=2)}
+
+Experiments:
+{json.dumps(plan.experiments, indent=2)}
+
+Success criteria:
+{json.dumps(plan.success_criteria, indent=2)}
+
+Return ONLY valid JSON.
+
+Return exactly this structure:
+
+{{
+    "tasks": [
+        {{
+            "task_id": "task_001",
+            "description": "clear description of the task",
+            "task_type": "literature_search",
+            "dependencies": [],
+            "required_tools": ["literature_search"]
+        }}
+    ]
+}}
+
+Rules:
+
+- Create only tasks necessary for the research.
+- Tasks must form a directed acyclic graph.
+- Every dependency must reference another task_id.
+- task_id values must be unique.
+- Start task numbering at task_001.
+- Use descriptive task types.
+- Include literature research when relevant.
+- Include experiments when the research requires experiments.
+- Include analysis and evaluation when appropriate.
+- Include a final conclusion task.
+- Do not include markdown.
+- Do not include explanations outside the JSON.
+"""
+
+        response = self.llm_client.generate(prompt)
+
+        try:
+            data = self._parse_json(response)
+
+            raw_tasks = data["tasks"]
+
+            tasks = [
+                ResearchTask(**task)
+                for task in raw_tasks
+            ]
+
+        except Exception as error:
+            raise RuntimeError(
+                f"Failed to create valid research tasks from LLM response: {error}"
+            ) from error
+
+        self._validate_task_graph(tasks)
+
+        for task in tasks:
+            self.database.save_research_task(task)
+
+        return tasks
+
     def _parse_json(self, response: str) -> dict:
         """
         Parse JSON returned by the LLM.
 
-        Also handles JSON wrapped in markdown code fences.
+        Handles JSON wrapped in markdown code fences.
         """
 
         response = response.strip()
@@ -113,6 +200,65 @@ Requirements:
             response = "\n".join(lines).strip()
 
         return json.loads(response)
+
+    def _validate_task_graph(
+        self,
+        tasks: list[ResearchTask],
+    ) -> None:
+        """
+        Validate the research task graph before execution.
+        """
+
+        if not tasks:
+            raise ValueError(
+                "Research task graph cannot be empty."
+            )
+
+        task_ids = {
+            task.task_id
+            for task in tasks
+        }
+
+        if len(task_ids) != len(tasks):
+            raise ValueError(
+                "Research task IDs must be unique."
+            )
+
+        for task in tasks:
+            for dependency in task.dependencies:
+                if dependency not in task_ids:
+                    raise ValueError(
+                        f"Task {task.task_id} depends on "
+                        f"unknown task {dependency}."
+                    )
+
+        graph = {
+            task.task_id: task.dependencies
+            for task in tasks
+        }
+
+        visiting = set()
+        visited = set()
+
+        def visit(task_id: str):
+            if task_id in visiting:
+                raise ValueError(
+                    "Research task graph contains a dependency cycle."
+                )
+
+            if task_id in visited:
+                return
+
+            visiting.add(task_id)
+
+            for dependency in graph[task_id]:
+                visit(dependency)
+
+            visiting.remove(task_id)
+            visited.add(task_id)
+
+        for task_id in task_ids:
+            visit(task_id)
 
     def start_run(
         self,
@@ -132,54 +278,3 @@ Requirements:
         self.database.save_research_run(run)
 
         return run
-
-    def create_tasks(
-        self,
-        plan: ResearchPlan,
-    ) -> list[ResearchTask]:
-        """
-        Convert a research plan into an executable task graph.
-        """
-
-        tasks = [
-            ResearchTask(
-                task_id="task_001",
-                description="Search and collect relevant research literature",
-                task_type="literature_search",
-                required_tools=["literature_search"],
-            ),
-
-            ResearchTask(
-                task_id="task_002",
-                description="Extract and organize evidence from the collected literature",
-                task_type="evidence_collection",
-                dependencies=["task_001"],
-            ),
-
-            ResearchTask(
-                task_id="task_003",
-                description="Analyze the collected evidence",
-                task_type="evidence_analysis",
-                dependencies=["task_002"],
-                required_tools=["evidence_analyzer"],
-            ),
-
-            ResearchTask(
-                task_id="task_004",
-                description="Evaluate the strength and limitations of the evidence",
-                task_type="evaluation",
-                dependencies=["task_003"],
-            ),
-
-            ResearchTask(
-                task_id="task_005",
-                description="Produce a reproducible research conclusion",
-                task_type="conclusion",
-                dependencies=["task_004"],
-            ),
-        ]
-
-        for task in tasks:
-            self.database.save_research_task(task)
-
-        return tasks
