@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 
 from agents.llm_client import LLMClient
+from storage.models.research import ToolDefinition
 
 
 @dataclass
@@ -35,24 +36,7 @@ class GeneratedTool:
 
 
 class ToolBuilder:
-    """
-    Designs missing tools using the AURA LLM.
-
-    Current responsibility:
-
-        Capability Gap
-             ↓
-        LLM Tool Design
-             ↓
-        Structured Tool Specification
-
-    The builder does NOT:
-        - generate executable code
-        - execute generated code
-        - install packages
-        - modify the host system
-    """
-
+  
     def __init__(
         self,
         llm_client: LLMClient | None = None,
@@ -139,7 +123,6 @@ Requirements:
         )
 
         try:
-
             data = self._parse_json(
                 response
             )
@@ -157,7 +140,6 @@ Requirements:
             )
 
         except Exception as error:
-
             raise RuntimeError(
                 "Failed to create a valid tool "
                 f"specification: {error}"
@@ -168,6 +150,33 @@ Requirements:
         )
 
         return tool
+
+    def to_tool_definition(
+        self,
+        tool: GeneratedTool,
+    ) -> ToolDefinition:
+        """
+        Convert a generated tool specification into
+        the persistent AURA ToolDefinition model.
+        """
+
+        return ToolDefinition(
+            tool_id=tool.name,
+            name=tool.name,
+            description=tool.description,
+            purpose=tool.purpose,
+            input_schema={
+                "inputs": tool.inputs,
+            },
+            output_schema={
+                "outputs": tool.outputs,
+            },
+            dependencies=tool.dependencies,
+            validation_requirements=(
+                tool.validation_requirements
+            ),
+            status="draft",
+        )
 
     def _parse_json(
         self,
@@ -183,7 +192,6 @@ Requirements:
         response = response.strip()
 
         if response.startswith("```"):
-
             lines = response.splitlines()
 
             if lines[0].startswith("```"):
@@ -212,41 +220,35 @@ Requirements:
         """
 
         if not tool.name.strip():
-
             raise ValueError(
                 "Generated tool name cannot be empty."
             )
 
         if not tool.description.strip():
-
             raise ValueError(
                 "Generated tool description "
                 "cannot be empty."
             )
 
         if not tool.purpose.strip():
-
             raise ValueError(
                 "Generated tool purpose "
                 "cannot be empty."
             )
 
         if not tool.inputs:
-
             raise ValueError(
                 "Generated tool must define "
                 "at least one input."
             )
 
         if not tool.outputs:
-
             raise ValueError(
                 "Generated tool must define "
                 "at least one output."
             )
 
         if not tool.validation_requirements:
-
             raise ValueError(
                 "Generated tool must define "
                 "validation requirements."
