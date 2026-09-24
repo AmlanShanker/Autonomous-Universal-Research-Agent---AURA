@@ -224,6 +224,25 @@ class ToolRegistry:
         self,
         tool_name: str,
     ) -> ToolValidationResult:
+        """
+        Validate an executable tool and synchronize
+        its ToolImplementation lifecycle state.
+
+        If the executable tool does not yet have an
+        implementation record, a built-in implementation
+        record is created automatically.
+
+        Successful validation results in:
+
+            validation_status = "validated"
+            status = "active"
+
+        Failed validation results in:
+
+            validation_status = "failed"
+            status = "inactive"
+        """
+
         tool = self.get(tool_name)
 
         if tool is None:
@@ -242,6 +261,13 @@ class ToolRegistry:
                 f"executable tool '{tool_name}'."
             )
 
+        implementation = (
+            self._get_or_create_implementation(
+                tool_name=tool_name,
+                definition=definition,
+            )
+        )
+
         result = self.validator.validate(
             tool=tool,
             definition=definition,
@@ -254,23 +280,11 @@ class ToolRegistry:
                 tool_name
             ] = tool
 
-            implementation = (
-                self._find_implementation_for_tool(
-                    tool_name
-                )
+            implementation.validation_status = (
+                "validated"
             )
 
-            if implementation is not None:
-                implementation.validation_status = (
-                    "validated"
-                )
-
-                implementation.status = "active"
-
-                if self.database is not None:
-                    self.database.save_tool_implementation(
-                        implementation
-                    )
+            implementation.status = "active"
 
         else:
             definition.status = "failed"
@@ -280,25 +294,17 @@ class ToolRegistry:
                 None,
             )
 
-            implementation = (
-                self._find_implementation_for_tool(
-                    tool_name
-                )
+            implementation.validation_status = (
+                "failed"
             )
 
-            if implementation is not None:
-                implementation.validation_status = (
-                    "failed"
-                )
-
-                implementation.status = "inactive"
-
-                if self.database is not None:
-                    self.database.save_tool_implementation(
-                        implementation
-                    )
+            implementation.status = "inactive"
 
         if self.database is not None:
+            self.database.save_tool_implementation(
+                implementation
+            )
+
             self.database.save_tool(
                 definition
             )
@@ -519,10 +525,113 @@ class ToolRegistry:
             self.implementations.keys()
         )
 
+    def _get_or_create_implementation(
+        self,
+        tool_name: str,
+        definition: ToolDefinition,
+    ) -> ToolImplementation:
+        """
+        Find an implementation already associated with
+        the ToolDefinition.
+
+        If none exists, create a deterministic built-in
+        implementation record for the executable tool.
+        """
+
+        for implementation_id in (
+            definition.implementation_ids
+        ):
+            implementation = (
+                self.get_implementation(
+                    implementation_id
+                )
+            )
+
+            if implementation is not None:
+                return implementation
+
+        implementation_id = (
+            f"{tool_name}_builtin_v1"
+        )
+
+        existing = self.get_implementation(
+            implementation_id
+        )
+
+        if existing is not None:
+            if (
+                existing.tool_id
+                != definition.tool_id
+            ):
+                raise ValueError(
+                    "Implementation "
+                    f"'{implementation_id}' "
+                    "belongs to a different tool."
+                )
+
+            if (
+                implementation_id
+                not in definition.implementation_ids
+            ):
+                definition.implementation_ids.append(
+                    implementation_id
+                )
+
+            return existing
+
+        implementation = ToolImplementation(
+            implementation_id=implementation_id,
+            tool_id=definition.tool_id,
+            version="1.0.0",
+            implementation_type="builtin",
+            source_reference=(
+                "registered executable tool"
+            ),
+            entrypoint=(
+                f"{tool.__class__.__name__}.execute"
+                if (
+                    tool := self.get(tool_name)
+                )
+                is not None
+                else "execute"
+            ),
+            validation_status="unvalidated",
+            status="draft",
+            description=(
+                f"Built-in implementation of "
+                f"'{tool_name}'."
+            ),
+            metadata={
+                "managed_by": "ToolRegistry",
+            },
+        )
+
+        self.implementations[
+            implementation.implementation_id
+        ] = implementation
+
+        if (
+            implementation.implementation_id
+            not in definition.implementation_ids
+        ):
+            definition.implementation_ids.append(
+                implementation.implementation_id
+            )
+
+        return implementation
+
     def _find_implementation_for_tool(
         self,
         tool_id: str,
     ) -> ToolImplementation | None:
+        """
+        Return an existing implementation that can
+        participate in the validation lifecycle.
+
+        This method is retained for compatibility with
+        the registry's lifecycle logic.
+        """
+
         definition = self.get_definition(
             tool_id
         )
