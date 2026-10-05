@@ -1,6 +1,7 @@
 ﻿import uuid
 
 from agents.capability_gap_detector import CapabilityGapDetector
+from agents.context_builder import TaskContextBuilder
 from agents.task_scheduler import TaskScheduler
 
 from storage.database.base import Database
@@ -32,9 +33,12 @@ class TaskExecutor:
 
     Task dependency readiness is controlled by TaskScheduler.
 
-    Successful execution results are also added to the
-    ResearchContext so that downstream tasks can consume
-    evidence produced by their dependencies.
+    Successful execution results are added to ResearchContext
+    so downstream tasks can consume evidence produced by
+    their dependencies.
+
+    TaskContextBuilder converts that evidence into a structured
+    execution-context payload.
     """
 
     def __init__(
@@ -48,7 +52,6 @@ class TaskExecutor:
             task.task_id: task
             for task in tasks
         }
-
         self.database = database
         self.run_id = run_id
         self.tool_registry = tool_registry
@@ -62,6 +65,7 @@ class TaskExecutor:
         )
 
         self.tool_builder = ToolBuilder()
+        self.context_builder = TaskContextBuilder()
 
         self.completed_tasks: set[str] = {
             task.task_id
@@ -101,7 +105,6 @@ class TaskExecutor:
             str,
         ] = {}
 
-        # Research evidence accumulated during this run.
         self.context = ResearchContext(
             run_id=self.run_id
         )
@@ -126,15 +129,55 @@ class TaskExecutor:
         """
         Return evidence produced by the task's
         completed dependencies.
-
-        This is the interface that downstream
-        orchestration will use to provide previous
-        research evidence to a task.
         """
 
         return self.context.get_dependency_context(
             task
         )
+
+    def build_task_context(
+        self,
+        task: ResearchTask,
+    ) -> dict:
+        """
+        Build the structured context payload that
+        should be available to a downstream task.
+
+        Only evidence produced by the task's
+        dependencies is included.
+        """
+
+        return self.context_builder.build(
+            task=task,
+            context_items=self.context.items,
+        )
+
+    def _build_tool_inputs(
+        self,
+        task: ResearchTask,
+        tool_name: str,
+    ) -> dict:
+        """
+        Build execution inputs for a tool.
+
+        The original task-specific tool inputs are preserved.
+        Research context is provided separately under the
+        'research_context' key so a tool adapter can explicitly
+        decide how to consume it.
+        """
+
+        tool_inputs = dict(
+            task.tool_inputs.get(
+                tool_name,
+                {},
+            )
+        )
+
+        tool_inputs["research_context"] = (
+            self.build_task_context(task)
+        )
+
+        return tool_inputs
 
     def _transition_run(
         self,
@@ -171,7 +214,6 @@ class TaskExecutor:
         Execute one research task.
 
         Returns True if the task completed successfully.
-
         Returns False if the task is blocked by a missing
         executable capability, validation failure, or
         unusable implementation.
@@ -375,6 +417,8 @@ class TaskExecutor:
                 ↓
             Executable Tool Resolution
                 ↓
+            Context Construction
+                ↓
             Execution
                 ↓
             ExecutionResult
@@ -395,6 +439,9 @@ class TaskExecutor:
             return {
                 "status": "no_tools_required",
                 "task_id": task.task_id,
+                "research_context": (
+                    self.build_task_context(task)
+                ),
             }
 
         gaps = self.capability_gap_detector.detect(
@@ -534,7 +581,6 @@ class TaskExecutor:
                         print(
                             f"  - {error}"
                         )
-
                 else:
                     print(
                         f"Tool '{tool_name}' "
@@ -606,6 +652,17 @@ class TaskExecutor:
                 f"for tool '{tool_name}'."
             )
 
+            task_context = self.build_task_context(
+                task
+            )
+
+            print(
+                f"Context available to "
+                f"'{task.task_id}': "
+                f"{len(task_context['dependencies'])} "
+                "dependency results"
+            )
+
             result = self._execute_tool(
                 tool_name=tool_name,
                 tool=tool,
@@ -623,6 +680,9 @@ class TaskExecutor:
             "tools": results,
             "implementations": (
                 self.selected_implementations.copy()
+            ),
+            "research_context": (
+                self.build_task_context(task)
             ),
         }
 
@@ -660,9 +720,9 @@ class TaskExecutor:
 
         try:
             if tool_name == "literature_search":
-                tool_inputs = task.tool_inputs.get(
+                tool_inputs = self._build_tool_inputs(
+                    task,
                     tool_name,
-                    {},
                 )
 
                 query = tool_inputs.get(
@@ -681,9 +741,9 @@ class TaskExecutor:
                 )
 
             elif tool_name == "dataset_download":
-                tool_inputs = task.tool_inputs.get(
+                tool_inputs = self._build_tool_inputs(
+                    task,
                     tool_name,
-                    {},
                 )
 
                 source_url = tool_inputs.get(
@@ -776,9 +836,6 @@ class TaskExecutor:
             execution_result
         )
 
-        # Add successful execution evidence to the
-        # research context so downstream tasks can
-        # consume the result.
         self.context.add_result(
             result_id=execution_result.result_id,
             task_id=execution_result.task_id,
