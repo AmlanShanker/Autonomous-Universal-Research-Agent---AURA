@@ -4,6 +4,9 @@ from agents.capability_gap_detector import CapabilityGapDetector
 from agents.context_builder import TaskContextBuilder
 from agents.task_scheduler import TaskScheduler
 
+from memory.research_memory_writer import ResearchMemoryWriter
+from memory.finding_extractor import ResearchFindingExtractor
+
 from storage.database.base import Database
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
@@ -39,6 +42,10 @@ class TaskExecutor:
 
     TaskContextBuilder converts that evidence into a structured
     execution-context payload.
+
+    When a ResearchFindingExtractor and ResearchMemoryWriter
+    are provided, successful execution results are also processed
+    into reusable research memory.
     """
 
     def __init__(
@@ -47,6 +54,8 @@ class TaskExecutor:
         database: Database,
         run_id: str,
         tool_registry: ToolRegistry,
+        finding_extractor: ResearchFindingExtractor | None = None,
+        memory_writer: ResearchMemoryWriter | None = None,
     ):
         self.tasks = {
             task.task_id: task
@@ -55,6 +64,8 @@ class TaskExecutor:
         self.database = database
         self.run_id = run_id
         self.tool_registry = tool_registry
+        self.finding_extractor = finding_extractor
+        self.memory_writer = memory_writer
 
         self.scheduler = TaskScheduler(
             list(self.tasks.values())
@@ -161,6 +172,7 @@ class TaskExecutor:
         Build execution inputs for a tool.
 
         The original task-specific tool inputs are preserved.
+
         Research context is provided separately under the
         'research_context' key so a tool adapter can explicitly
         decide how to consume it.
@@ -214,6 +226,7 @@ class TaskExecutor:
         Execute one research task.
 
         Returns True if the task completed successfully.
+
         Returns False if the task is blocked by a missing
         executable capability, validation failure, or
         unusable implementation.
@@ -426,6 +439,10 @@ class TaskExecutor:
             Persistent Storage
                 ↓
             ResearchContext
+                ↓
+            Finding Extraction
+                ↓
+            Research Memory
 
         Generated tool code is not executed.
         """
@@ -581,6 +598,7 @@ class TaskExecutor:
                         print(
                             f"  - {error}"
                         )
+
                 else:
                     print(
                         f"Tool '{tool_name}' "
@@ -663,7 +681,7 @@ class TaskExecutor:
                 "dependency results"
             )
 
-            result = self._execute_tool(
+            execution_result = self._execute_tool(
                 tool_name=tool_name,
                 tool=tool,
                 implementation=implementation,
@@ -672,7 +690,11 @@ class TaskExecutor:
 
             results[
                 tool_name
-            ] = result
+            ] = execution_result.output
+
+            self._process_execution_result(
+                execution_result
+            )
 
         return {
             "status": "completed",
@@ -686,13 +708,78 @@ class TaskExecutor:
             ),
         }
 
+    def _process_execution_result(
+        self,
+        execution_result: ExecutionResult,
+    ) -> None:
+        """
+        Extract reusable findings from a successful
+        execution result and persist them as research memory.
+
+        Finding extraction is enabled only when both
+        dependencies are configured.
+
+        This keeps TaskExecutor backward compatible with
+        existing callers and tests that do not use the
+        research-memory pipeline.
+        """
+
+        if (
+            self.finding_extractor is None
+            or self.memory_writer is None
+        ):
+            return
+
+        if execution_result.status != "success":
+            return
+
+        run = self.database.get_research_run(
+            self.run_id
+        )
+
+        if run is None:
+            raise RuntimeError(
+                "Cannot extract research findings because "
+                f"research run '{self.run_id}' was not found."
+            )
+
+        findings = self.finding_extractor.extract(
+            research_question=run.research_question,
+            execution_result=execution_result,
+        )
+
+        for finding in findings:
+            memory_item = self.memory_writer.write_finding(
+                run_id=self.run_id,
+                task_id=execution_result.task_id,
+                research_question=run.research_question,
+                content=finding["content"],
+                memory_type=finding.get(
+                    "memory_type",
+                    "finding",
+                ),
+                tags=finding.get(
+                    "tags",
+                    [],
+                ),
+                metadata=finding.get(
+                    "metadata",
+                    {},
+                ),
+            )
+
+            print(
+                f"Research memory persisted: "
+                f"{memory_item.memory_id}"
+            )
+
     def _execute_tool(
         self,
         tool_name: str,
         tool,
         implementation,
         task: ResearchTask,
-    ):
+    ) -> ExecutionResult:
         """
         Execute one selected executable tool.
 
@@ -700,11 +787,9 @@ class TaskExecutor:
         ExecutionResult.
 
         Successful executions are stored with:
-
             status = "success"
 
         Failed executions are stored with:
-
             status = "failed"
 
         Successful execution results are also added
@@ -712,6 +797,11 @@ class TaskExecutor:
 
         Failed execution results are persisted before
         the original exception is raised.
+
+        The complete ExecutionResult object is returned
+        so later lifecycle stages, such as research-memory
+        extraction, can consume the persisted execution
+        record directly.
         """
 
         result_id = str(
@@ -855,7 +945,7 @@ class TaskExecutor:
             f"{result_id}"
         )
 
-        return output
+        return execution_result
 
     def run(
         self,
@@ -898,7 +988,6 @@ class TaskExecutor:
         while len(
             self.completed_tasks
         ) < len(self.tasks):
-
             ready_tasks = (
                 self.get_ready_tasks()
             )
@@ -1062,7 +1151,6 @@ class TaskExecutor:
             task_id,
             missing_tools,
         ) in self.capability_gaps.items():
-
             print(
                 f"{task_id}:"
             )
@@ -1081,7 +1169,6 @@ class TaskExecutor:
                 capability,
                 definition,
             ) in self.reused_tool_definitions.items():
-
                 print(
                     f"\nCapability: "
                     f"{capability}"
@@ -1107,7 +1194,6 @@ class TaskExecutor:
                 capability,
                 tool,
             ) in self.generated_tool_specs.items():
-
                 print(
                     f"\nCapability: "
                     f"{capability}"
@@ -1158,7 +1244,6 @@ class TaskExecutor:
             task_id,
             failed_tools,
         ) in self.validation_failures.items():
-
             print(
                 f"{task_id}:"
             )
@@ -1184,7 +1269,6 @@ class TaskExecutor:
             task_id,
             failed_tools,
         ) in self.implementation_failures.items():
-
             print(
                 f"{task_id}:"
             )
