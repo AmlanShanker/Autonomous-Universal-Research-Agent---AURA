@@ -1,10 +1,13 @@
 ﻿import uuid
-from agents.capability_gap_detector import (
-    CapabilityGapDetector,
-)
+
+from agents.capability_gap_detector import CapabilityGapDetector
+from agents.task_scheduler import TaskScheduler
 from storage.database.base import Database
 from storage.models.execution import ExecutionResult
-from storage.models.research import ResearchTask
+from storage.models.research import (
+    ResearchRunStatus,
+    ResearchTask,
+)
 from tools.builder import (
     ToolBuildRequest,
     ToolBuilder,
@@ -20,6 +23,11 @@ class TaskExecutor:
     usable implementations, invoking the Tool Builder
     when a capability is completely unknown, and
     persisting execution results.
+
+    Research-run lifecycle state changes are controlled by
+    ResearchRun.transition_to().
+
+    Task dependency readiness is controlled by TaskScheduler.
     """
 
     def __init__(
@@ -38,6 +46,10 @@ class TaskExecutor:
         self.run_id = run_id
         self.tool_registry = tool_registry
 
+        self.scheduler = TaskScheduler(
+            list(self.tasks.values())
+        )
+
         self.capability_gap_detector = (
             CapabilityGapDetector(
                 tool_registry=tool_registry
@@ -46,7 +58,11 @@ class TaskExecutor:
 
         self.tool_builder = ToolBuilder()
 
-        self.completed_tasks: set[str] = set()
+        self.completed_tasks: set[str] = {
+            task.task_id
+            for task in self.tasks.values()
+            if task.status == "completed"
+        }
 
         self.results: dict[str, object] = {}
 
@@ -86,23 +102,39 @@ class TaskExecutor:
         """
         Return tasks whose dependencies have all
         been completed.
+
+        Dependency readiness is delegated to the
+        deterministic TaskScheduler.
         """
 
-        ready_tasks = []
+        return self.scheduler.get_ready_tasks()
 
-        for task in self.tasks.values():
-            if task.status != "pending":
-                continue
+    def _transition_run(
+        self,
+        new_status: ResearchRunStatus,
+    ) -> None:
+        """
+        Transition the persistent research run to a new
+        lifecycle state.
 
-            dependencies_completed = all(
-                dependency in self.completed_tasks
-                for dependency in task.dependencies
-            )
+        The ResearchRun model is the single source of truth
+        for allowed lifecycle transitions.
+        """
 
-            if dependencies_completed:
-                ready_tasks.append(task)
+        run = self.database.get_research_run(
+            self.run_id
+        )
 
-        return ready_tasks
+        if run is None:
+            return
+
+        run.transition_to(
+            new_status
+        )
+
+        self.database.save_research_run(
+            run
+        )
 
     def execute_task(
         self,
@@ -112,7 +144,6 @@ class TaskExecutor:
         Execute one research task.
 
         Returns True if the task completed successfully.
-
         Returns False if the task is blocked by a missing
         executable capability, validation failure, or
         unusable implementation.
@@ -197,6 +228,10 @@ class TaskExecutor:
                     f"  - {tool_name}"
                 )
 
+            self._transition_run(
+                ResearchRunStatus.BLOCKED
+            )
+
             return False
 
         except ToolValidationError as exc:
@@ -225,16 +260,9 @@ class TaskExecutor:
                     f"  - {tool_name}"
                 )
 
-            run = self.database.get_research_run(
-                self.run_id
+            self._transition_run(
+                ResearchRunStatus.BLOCKED
             )
-
-            if run is not None:
-                run.status = "blocked"
-
-                self.database.save_research_run(
-                    run
-                )
 
             return False
 
@@ -264,16 +292,9 @@ class TaskExecutor:
                     f"  - {tool_name}"
                 )
 
-            run = self.database.get_research_run(
-                self.run_id
+            self._transition_run(
+                ResearchRunStatus.BLOCKED
             )
-
-            if run is not None:
-                run.status = "blocked"
-
-                self.database.save_research_run(
-                    run
-                )
 
             return False
 
@@ -297,11 +318,13 @@ class TaskExecutor:
                         task.task_id
                     )
 
-                run.status = "failed"
-
                 self.database.save_research_run(
                     run
                 )
+
+            self._transition_run(
+                ResearchRunStatus.FAILED
+            )
 
             print(
                 f"Failed: {task.task_id} - {exc}"
@@ -504,7 +527,6 @@ class TaskExecutor:
             )
 
         implementation_failures = []
-
         selected_tools = {}
 
         for tool_name in task.required_tools:
@@ -744,12 +766,23 @@ class TaskExecutor:
         """
         Execute the research task graph.
 
+        Task readiness is determined exclusively by
+        TaskScheduler.
+
+        The scheduler is recalculated after every batch
+        of completed tasks, allowing newly-unblocked
+        dependent tasks to execute.
+
         A research run is completed only when every
         task actually completes.
 
         Missing executable capabilities, failed
         validation, or unavailable implementations
         cause the run to become blocked.
+
+        The run may be resumed after reaching BLOCKED,
+        provided the underlying capability problem has
+        been resolved.
         """
 
         run = self.database.get_research_run(
@@ -757,7 +790,9 @@ class TaskExecutor:
         )
 
         if run is not None:
-            run.status = "running"
+            run.transition_to(
+                ResearchRunStatus.RUNNING
+            )
 
             self.database.save_research_run(
                 run
@@ -774,9 +809,7 @@ class TaskExecutor:
             if not ready_tasks:
                 incomplete_tasks = [
                     task
-                    for task in (
-                        self.tasks.values()
-                    )
+                    for task in self.tasks.values()
                     if task.status
                     not in {
                         "completed",
@@ -786,12 +819,9 @@ class TaskExecutor:
                 ]
 
                 if self.capability_gaps:
-                    if run is not None:
-                        run.status = "blocked"
-
-                        self.database.save_research_run(
-                            run
-                        )
+                    self._transition_run(
+                        ResearchRunStatus.BLOCKED
+                    )
 
                     self._print_capability_gaps()
 
@@ -802,12 +832,9 @@ class TaskExecutor:
                     )
 
                 if self.validation_failures:
-                    if run is not None:
-                        run.status = "blocked"
-
-                        self.database.save_research_run(
-                            run
-                        )
+                    self._transition_run(
+                        ResearchRunStatus.BLOCKED
+                    )
 
                     self._print_validation_failures()
 
@@ -818,12 +845,9 @@ class TaskExecutor:
                     )
 
                 if self.implementation_failures:
-                    if run is not None:
-                        run.status = "blocked"
-
-                        self.database.save_research_run(
-                            run
-                        )
+                    self._transition_run(
+                        ResearchRunStatus.BLOCKED
+                    )
 
                     self._print_implementation_failures()
 
@@ -835,12 +859,9 @@ class TaskExecutor:
                     )
 
                 if incomplete_tasks:
-                    if run is not None:
-                        run.status = "failed"
-
-                        self.database.save_research_run(
-                            run
-                        )
+                    self._transition_run(
+                        ResearchRunStatus.FAILED
+                    )
 
                     raise RuntimeError(
                         "No executable tasks found. "
@@ -863,12 +884,9 @@ class TaskExecutor:
 
                 else:
                     if self.capability_gaps:
-                        if run is not None:
-                            run.status = "blocked"
-
-                            self.database.save_research_run(
-                                run
-                            )
+                        self._transition_run(
+                            ResearchRunStatus.BLOCKED
+                        )
 
                         self._print_capability_gaps()
 
@@ -879,12 +897,9 @@ class TaskExecutor:
                         )
 
                     if self.validation_failures:
-                        if run is not None:
-                            run.status = "blocked"
-
-                            self.database.save_research_run(
-                                run
-                            )
+                        self._transition_run(
+                            ResearchRunStatus.BLOCKED
+                        )
 
                         self._print_validation_failures()
 
@@ -895,12 +910,9 @@ class TaskExecutor:
                         )
 
                     if self.implementation_failures:
-                        if run is not None:
-                            run.status = "blocked"
-
-                            self.database.save_research_run(
-                                run
-                            )
+                        self._transition_run(
+                            ResearchRunStatus.BLOCKED
+                        )
 
                         self._print_implementation_failures()
 
@@ -912,12 +924,9 @@ class TaskExecutor:
                         )
 
             if not progress_made:
-                if run is not None:
-                    run.status = "blocked"
-
-                    self.database.save_research_run(
-                        run
-                    )
+                self._transition_run(
+                    ResearchRunStatus.BLOCKED
+                )
 
                 raise RuntimeError(
                     "Research run is blocked."
@@ -928,10 +937,13 @@ class TaskExecutor:
         )
 
         if run is not None:
-            if len(
-                self.completed_tasks
-            ) == len(self.tasks):
-                run.status = "completed"
+            if (
+                len(self.completed_tasks)
+                == len(self.tasks)
+            ):
+                run.transition_to(
+                    ResearchRunStatus.COMPLETED
+                )
 
                 self.database.save_research_run(
                     run
@@ -953,7 +965,6 @@ class TaskExecutor:
             task_id,
             missing_tools,
         ) in self.capability_gaps.items():
-
             print(
                 f"{task_id}:"
             )
@@ -972,7 +983,6 @@ class TaskExecutor:
                 capability,
                 definition,
             ) in self.reused_tool_definitions.items():
-
                 print(
                     f"\nCapability: "
                     f"{capability}"
@@ -998,7 +1008,6 @@ class TaskExecutor:
                 capability,
                 tool,
             ) in self.generated_tool_specs.items():
-
                 print(
                     f"\nCapability: "
                     f"{capability}"
@@ -1049,7 +1058,6 @@ class TaskExecutor:
             task_id,
             failed_tools,
         ) in self.validation_failures.items():
-
             print(
                 f"{task_id}:"
             )
@@ -1075,7 +1083,6 @@ class TaskExecutor:
             task_id,
             failed_tools,
         ) in self.implementation_failures.items():
-
             print(
                 f"{task_id}:"
             )
