@@ -1,9 +1,10 @@
-import json
+﻿import json
 
 from storage.database.base import Database
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
+    ResearchRunStatus,
     ResearchTask,
 )
 
@@ -13,6 +14,7 @@ class ResearchDirector:
     Coordinates a research request from planning to execution.
 
     The director uses an LLM to:
+
     1. Create a research plan.
     2. Create a dynamic research task graph.
 
@@ -27,7 +29,10 @@ class ResearchDirector:
         self.database = database
         self.llm_client = llm_client
 
-    def create_plan(self, question: str) -> ResearchPlan:
+    def create_plan(
+        self,
+        question: str,
+    ) -> ResearchPlan:
         """
         Generate a research plan using the LLM.
         """
@@ -81,10 +86,10 @@ Requirements:
         try:
             plan_data = self._parse_json(response)
             plan = ResearchPlan(**plan_data)
-
         except Exception as error:
             raise RuntimeError(
-                f"Failed to create a valid research plan from LLM response: {error}"
+                "Failed to create a valid research plan "
+                f"from LLM response: {error}"
             ) from error
 
         self.database.save_research_plan(plan)
@@ -106,21 +111,27 @@ system called AURA.
 Create an executable research task graph for this research plan.
 
 Research question:
+
 {plan.question}
 
 Objectives:
+
 {json.dumps(plan.objectives, indent=2)}
 
 Hypotheses:
+
 {json.dumps(plan.hypotheses, indent=2)}
 
 Required capabilities:
+
 {json.dumps(plan.required_capabilities, indent=2)}
 
 Experiments:
+
 {json.dumps(plan.experiments, indent=2)}
 
 Success criteria:
+
 {json.dumps(plan.success_criteria, indent=2)}
 
 Return ONLY valid JSON.
@@ -169,7 +180,8 @@ Rules:
 
         except Exception as error:
             raise RuntimeError(
-                f"Failed to create valid research tasks from LLM response: {error}"
+                "Failed to create valid research tasks "
+                f"from LLM response: {error}"
             ) from error
 
         self._validate_task_graph(tasks)
@@ -179,7 +191,10 @@ Rules:
 
         return tasks
 
-    def _parse_json(self, response: str) -> dict:
+    def _parse_json(
+        self,
+        response: str,
+    ) -> dict:
         """
         Parse JSON returned by the LLM.
 
@@ -194,7 +209,10 @@ Rules:
             if lines[0].startswith("```"):
                 lines = lines[1:]
 
-            if lines and lines[-1].strip() == "```":
+            if (
+                lines
+                and lines[-1].strip() == "```"
+            ):
                 lines = lines[:-1]
 
             response = "\n".join(lines).strip()
@@ -243,7 +261,8 @@ Rules:
         def visit(task_id: str):
             if task_id in visiting:
                 raise ValueError(
-                    "Research task graph contains a dependency cycle."
+                    "Research task graph contains "
+                    "a dependency cycle."
                 )
 
             if task_id in visited:
@@ -267,12 +286,18 @@ Rules:
     ) -> ResearchRun:
         """
         Create and persist a new research run.
+
+        The run is created in the CREATED state and then
+        transitions explicitly to PLANNED.
         """
 
         run = ResearchRun(
             run_id=run_id,
             research_question=question,
-            status="planned",
+        )
+
+        run.transition_to(
+            ResearchRunStatus.PLANNED
         )
 
         self.database.save_research_run(run)
