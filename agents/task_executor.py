@@ -2,12 +2,15 @@
 
 from agents.capability_gap_detector import CapabilityGapDetector
 from agents.task_scheduler import TaskScheduler
+
 from storage.database.base import Database
+from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
 from storage.models.research import (
     ResearchRunStatus,
     ResearchTask,
 )
+
 from tools.builder import (
     ToolBuildRequest,
     ToolBuilder,
@@ -28,6 +31,10 @@ class TaskExecutor:
     ResearchRun.transition_to().
 
     Task dependency readiness is controlled by TaskScheduler.
+
+    Successful execution results are also added to the
+    ResearchContext so that downstream tasks can consume
+    evidence produced by their dependencies.
     """
 
     def __init__(
@@ -50,10 +57,8 @@ class TaskExecutor:
             list(self.tasks.values())
         )
 
-        self.capability_gap_detector = (
-            CapabilityGapDetector(
-                tool_registry=tool_registry
-            )
+        self.capability_gap_detector = CapabilityGapDetector(
+            tool_registry=tool_registry
         )
 
         self.tool_builder = ToolBuilder()
@@ -96,6 +101,11 @@ class TaskExecutor:
             str,
         ] = {}
 
+        # Research evidence accumulated during this run.
+        self.context = ResearchContext(
+            run_id=self.run_id
+        )
+
     def get_ready_tasks(
         self,
     ) -> list[ResearchTask]:
@@ -108,6 +118,23 @@ class TaskExecutor:
         """
 
         return self.scheduler.get_ready_tasks()
+
+    def get_task_context(
+        self,
+        task: ResearchTask,
+    ) -> list:
+        """
+        Return evidence produced by the task's
+        completed dependencies.
+
+        This is the interface that downstream
+        orchestration will use to provide previous
+        research evidence to a task.
+        """
+
+        return self.context.get_dependency_context(
+            task
+        )
 
     def _transition_run(
         self,
@@ -144,6 +171,7 @@ class TaskExecutor:
         Execute one research task.
 
         Returns True if the task completed successfully.
+
         Returns False if the task is blocked by a missing
         executable capability, validation failure, or
         unusable implementation.
@@ -221,9 +249,7 @@ class TaskExecutor:
                 "Missing executable capabilities:"
             )
 
-            for tool_name in (
-                exc.missing_tools
-            ):
+            for tool_name in exc.missing_tools:
                 print(
                     f"  - {tool_name}"
                 )
@@ -253,9 +279,7 @@ class TaskExecutor:
                 "Tool validation failures:"
             )
 
-            for tool_name in (
-                exc.failed_tools
-            ):
+            for tool_name in exc.failed_tools:
                 print(
                     f"  - {tool_name}"
                 )
@@ -285,9 +309,7 @@ class TaskExecutor:
                 "Tool implementation failures:"
             )
 
-            for tool_name in (
-                exc.failed_tools
-            ):
+            for tool_name in exc.failed_tools:
                 print(
                     f"  - {tool_name}"
                 )
@@ -342,22 +364,24 @@ class TaskExecutor:
         Execution lifecycle:
 
             Capability
-                 ↓
+                ↓
             ToolDefinition
-                 ↓
+                ↓
             ToolImplementation
-                 ↓
+                ↓
             Validation
-                 ↓
+                ↓
             Implementation Selection
-                 ↓
+                ↓
             Executable Tool Resolution
-                 ↓
+                ↓
             Execution
-                 ↓
+                ↓
             ExecutionResult
-                 ↓
+                ↓
             Persistent Storage
+                ↓
+            ResearchContext
 
         Generated tool code is not executed.
         """
@@ -373,13 +397,9 @@ class TaskExecutor:
                 "task_id": task.task_id,
             }
 
-        gaps = (
-            self.capability_gap_detector.detect(
-                task_id=task.task_id,
-                required_tools=(
-                    task.required_tools
-                ),
-            )
+        gaps = self.capability_gap_detector.detect(
+            task_id=task.task_id,
+            required_tools=task.required_tools,
         )
 
         if gaps:
@@ -627,6 +647,9 @@ class TaskExecutor:
 
             status = "failed"
 
+        Successful execution results are also added
+        to ResearchContext.
+
         Failed execution results are persisted before
         the original exception is raised.
         """
@@ -753,8 +776,25 @@ class TaskExecutor:
             execution_result
         )
 
+        # Add successful execution evidence to the
+        # research context so downstream tasks can
+        # consume the result.
+        self.context.add_result(
+            result_id=execution_result.result_id,
+            task_id=execution_result.task_id,
+            tool_id=execution_result.tool_id,
+            status=execution_result.status,
+            output=execution_result.output,
+            metadata=execution_result.metadata,
+        )
+
         print(
             f"Execution result persisted: "
+            f"{result_id}"
+        )
+
+        print(
+            f"Research context updated: "
             f"{result_id}"
         )
 
@@ -965,6 +1005,7 @@ class TaskExecutor:
             task_id,
             missing_tools,
         ) in self.capability_gaps.items():
+
             print(
                 f"{task_id}:"
             )
@@ -983,6 +1024,7 @@ class TaskExecutor:
                 capability,
                 definition,
             ) in self.reused_tool_definitions.items():
+
                 print(
                     f"\nCapability: "
                     f"{capability}"
@@ -1008,6 +1050,7 @@ class TaskExecutor:
                 capability,
                 tool,
             ) in self.generated_tool_specs.items():
+
                 print(
                     f"\nCapability: "
                     f"{capability}"
@@ -1058,6 +1101,7 @@ class TaskExecutor:
             task_id,
             failed_tools,
         ) in self.validation_failures.items():
+
             print(
                 f"{task_id}:"
             )
@@ -1083,6 +1127,7 @@ class TaskExecutor:
             task_id,
             failed_tools,
         ) in self.implementation_failures.items():
+
             print(
                 f"{task_id}:"
             )
