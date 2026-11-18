@@ -805,7 +805,10 @@ class TaskExecutor:
         dependency_items = context.get("dependencies", [])
         experiment_results = experiment_results or []
 
-        if not dependency_items and not experiment_results:
+        if (
+            (not dependency_items and not experiment_results)
+            or task.task_type.strip().lower() == "test"
+        ):
             analysis = {
                 "summary": "No dependency evidence was available for this task.",
                 "findings": [],
