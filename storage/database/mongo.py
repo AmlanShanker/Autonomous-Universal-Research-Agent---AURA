@@ -109,6 +109,21 @@ class MongoDatabase(Database):
         lease_expiry = now + timedelta(seconds=lease_seconds)
         self.research_jobs.update_many(
             {
+                "status": ResearchJobStatus.CANCEL_REQUESTED.value,
+                "lease_expires_at": {"$lte": now},
+            },
+            {
+                "$set": {
+                    "status": ResearchJobStatus.CANCELLED.value,
+                    "finished_at": now,
+                    "worker_id": None,
+                    "lease_expires_at": None,
+                    "updated_at": now,
+                }
+            },
+        )
+        self.research_jobs.update_many(
+            {
                 "status": ResearchJobStatus.RUNNING.value,
                 "lease_expires_at": {"$lte": now},
                 "$expr": {"$gte": ["$attempts", "$max_attempts"]},
