@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
+from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
 from storage.models.research import (
     ResearchPlan,
@@ -20,6 +21,8 @@ class InMemoryDatabase(Database):
         self.tools: dict[str, ToolDefinition] = {}
         self.tool_implementations: dict[str, ToolImplementation] = {}
         self.execution_results: dict[str, ExecutionResult] = {}
+        self.experiments: dict[str, ExperimentDefinition] = {}
+        self.experiment_results: dict[str, ExperimentResult] = {}
         self.research_memory: dict[str, ResearchMemoryItem] = {}
 
     def save_research_plan(self, plan: ResearchPlan) -> None:
@@ -39,6 +42,21 @@ class InMemoryDatabase(Database):
 
     def save_execution_result(self, result: ExecutionResult) -> None:
         self.execution_results[result.result_id] = result
+
+    def save_experiment(self, experiment: ExperimentDefinition) -> None:
+        self.experiments[experiment.experiment_id] = experiment
+
+    def get_experiment(self, experiment_id: str) -> ExperimentDefinition | None:
+        return self.experiments.get(experiment_id)
+
+    def save_experiment_result(self, result: ExperimentResult) -> None:
+        self.experiment_results[result.result_id] = result
+
+    def get_experiment_result(self, result_id: str) -> ExperimentResult | None:
+        return self.experiment_results.get(result_id)
+
+    def list_experiments_for_run(self, run_id: str) -> list[ExperimentDefinition]:
+        return [item for item in self.experiments.values() if item.run_id == run_id]
 
     def save_research_memory(self, item: ResearchMemoryItem) -> None:
         if item.memory_id in self.research_memory:
