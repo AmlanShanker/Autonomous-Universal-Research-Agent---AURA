@@ -1,3 +1,4 @@
+from memory.research_memory import ResearchMemoryItem
 from storage.models.context import ResearchContextItem
 from storage.models.research import ResearchTask
 
@@ -6,21 +7,23 @@ class TaskContextBuilder:
     """
     Build structured context inputs for a research task.
 
-    The builder converts internal ResearchContext items into a
-    tool-independent structure that can be passed to downstream
-    task execution.
+    The builder combines evidence from completed task dependencies
+    with reusable findings retrieved from earlier research runs.
     """
 
     def build(
         self,
         task: ResearchTask,
         context_items: list[ResearchContextItem],
+        prior_findings: list[ResearchMemoryItem] | None = None,
     ) -> dict:
         """
         Build the context payload available to a task.
 
-        Only evidence produced by the task's dependencies should be
-        supplied to the task.
+        Dependency evidence is restricted to the task's declared
+        dependencies. Prior findings are supplied separately so
+        consumers can distinguish current-run evidence from
+        historical research memory.
         """
 
         dependency_ids = set(task.dependencies)
@@ -42,5 +45,18 @@ class TaskContextBuilder:
                     "metadata": item.metadata,
                 }
                 for item in relevant_items
-            ]
+            ],
+            "prior_findings": [
+                {
+                    "memory_id": item.memory_id,
+                    "source_run_id": item.run_id,
+                    "source_task_id": item.task_id,
+                    "research_question": item.research_question,
+                    "content": item.content,
+                    "memory_type": item.memory_type,
+                    "tags": item.tags,
+                    "metadata": item.metadata,
+                }
+                for item in (prior_findings or [])
+            ],
         }
