@@ -122,3 +122,38 @@ def test_mongodb_round_trips_memory_confidence_and_provenance(database):
     assert stored.confidence == 0.92
     assert stored.source_result_id == "result_456"
     assert stored.source_tool_id == "literature_search"
+
+
+
+def test_mongodb_persists_embeddings_and_lifecycle_metadata(database):
+    from datetime import datetime, timedelta, timezone
+
+    item = create_memory_item()
+    item.embedding = [0.1, 0.2, 0.3]
+    item.expires_at = datetime.now(timezone.utc) + timedelta(days=7)
+    database.save_research_memory(item)
+
+    stored = database.get_research_memory(item.memory_id)
+
+    assert stored is not None
+    assert stored.embedding == [0.1, 0.2, 0.3]
+    assert stored.expires_at is not None
+    assert stored.expires_at.tzinfo is not None
+
+
+def test_mongodb_lists_updates_and_deletes_research_memory(database):
+    item = create_memory_item()
+    database.save_research_memory(item)
+
+    assert [entry.memory_id for entry in database.list_research_memory()] == [
+        item.memory_id
+    ]
+
+    item.content = "Updated MongoDB finding."
+    database.update_research_memory(item)
+    assert database.get_research_memory(item.memory_id).content == (
+        "Updated MongoDB finding."
+    )
+
+    assert database.delete_research_memory(item.memory_id) is True
+    assert database.delete_research_memory(item.memory_id) is False

@@ -158,3 +158,48 @@ def test_database_persists_memory_confidence_and_provenance():
     assert stored.confidence == 0.87
     assert stored.source_result_id == "result_123"
     assert stored.source_tool_id == "literature_search"
+
+
+
+def test_database_lists_all_research_memory_for_semantic_retrieval():
+    database = InMemoryDatabase()
+    database.save_research_memory(create_memory_item("memory_001"))
+    database.save_research_memory(create_memory_item("memory_002"))
+
+    assert {item.memory_id for item in database.list_research_memory()} == {
+        "memory_001",
+        "memory_002",
+    }
+
+
+def test_database_updates_and_deletes_research_memory():
+    database = InMemoryDatabase()
+    item = create_memory_item()
+    database.save_research_memory(item)
+
+    item.content = "Updated finding."
+    database.update_research_memory(item)
+
+    assert database.get_research_memory(item.memory_id).content == "Updated finding."
+    assert database.delete_research_memory(item.memory_id) is True
+    assert database.delete_research_memory(item.memory_id) is False
+
+
+def test_database_search_excludes_archived_and_expired_memory():
+    from datetime import datetime, timedelta, timezone
+
+    database = InMemoryDatabase()
+    archived = create_memory_item("archived")
+    archived.archived = True
+    database.save_research_memory(archived)
+
+    expired = create_memory_item("expired")
+    expired.expires_at = datetime.now(timezone.utc) - timedelta(days=1)
+    database.save_research_memory(expired)
+
+    active = create_memory_item("active")
+    database.save_research_memory(active)
+
+    assert [item.memory_id for item in database.search_research_memory("retrieval")] == [
+        "active"
+    ]
