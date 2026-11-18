@@ -97,6 +97,13 @@ class MongoDatabase(Database):
         document.pop("_id", None)
         return ResearchJob.model_validate(document)
 
+    def list_research_jobs_for_run(self, run_id: str) -> list[ResearchJob]:
+        jobs = []
+        for document in self.research_jobs.find({"run_id": run_id}).sort("created_at", -1):
+            document.pop("_id", None)
+            jobs.append(ResearchJob.model_validate(document))
+        return jobs
+
     def claim_next_research_job(self, worker_id: str, lease_seconds: int = 3600) -> ResearchJob | None:
         now = datetime.now(timezone.utc)
         lease_expiry = now + timedelta(seconds=lease_seconds)
