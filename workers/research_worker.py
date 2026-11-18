@@ -140,7 +140,10 @@ class ResearchWorker:
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=2)
         latest_job = self.database.get_research_job(job.job_id) or job
-        if latest_job.status == ResearchJobStatus.CANCEL_REQUESTED:
+        latest_run = self.database.get_research_run(job.run_id)
+        if latest_job.status == ResearchJobStatus.CANCEL_REQUESTED and (
+            latest_run is None or latest_run.status != ResearchRunStatus.COMPLETED
+        ):
             latest_job.status = ResearchJobStatus.CANCELLED
         else:
             latest_job.status = ResearchJobStatus.SUCCEEDED
