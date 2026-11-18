@@ -1,3 +1,4 @@
+import math
 from datetime import datetime, timezone
 from typing import Any, Literal
 
@@ -10,6 +11,20 @@ class MetricCriterion(BaseModel):
     metric: str = Field(min_length=1)
     operator: Literal["gt", "gte", "lt", "lte", "eq"]
     threshold: float
+
+    @field_validator("metric")
+    @classmethod
+    def reject_blank_metric(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("Metric name cannot be blank.")
+        return value.strip()
+
+    @field_validator("threshold")
+    @classmethod
+    def require_finite_threshold(cls, value: float) -> float:
+        if not math.isfinite(value):
+            raise ValueError("Metric threshold must be finite.")
+        return value
 
 
 class ExperimentDefinition(BaseModel):
@@ -26,12 +41,22 @@ class ExperimentDefinition(BaseModel):
     repetitions: int = Field(default=1, ge=1, le=10)
     random_seed: int | None = None
 
-    @field_validator("experiment_id", "run_id", "task_id", "hypothesis", "method", "adapter_name")
+    @field_validator(
+        "experiment_id", "run_id", "task_id", "hypothesis", "method", "adapter_name"
+    )
     @classmethod
     def reject_blank_text(cls, value: str) -> str:
         if not value.strip():
             raise ValueError("Experiment identifiers and descriptions cannot be blank.")
         return value.strip()
+
+    @field_validator("success_criteria")
+    @classmethod
+    def require_unique_criteria(cls, value: list[MetricCriterion]) -> list[MetricCriterion]:
+        names = [criterion.metric for criterion in value]
+        if len(names) != len(set(names)):
+            raise ValueError("Experiment success criteria must use unique metric names.")
+        return value
 
 
 class ExperimentResult(BaseModel):
