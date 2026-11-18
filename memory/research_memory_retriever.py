@@ -185,8 +185,8 @@ class ResearchMemoryRetriever:
             + 0.5 * bool(item.source_tool_id)
         )
         age_days = max(
-            0.0,
-            (now - item.updated_at).total_seconds() / 86400.0,
+            0,
+            int((now - item.updated_at).total_seconds() // 86400),
         )
         freshness = math.pow(0.5, age_days / 365.0)
         return 0.70 * confidence + 0.15 * provenance + 0.15 * freshness
