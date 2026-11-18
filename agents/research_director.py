@@ -1,6 +1,7 @@
 import json
 
 from storage.database.base import Database
+from storage.models.experiment import ExperimentSpec
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -24,6 +25,7 @@ class ResearchDirector:
         llm_client,
         memory_retriever=None,
         max_generation_attempts: int = 3,
+        available_experiment_adapters: list[str] | None = None,
     ):
         if max_generation_attempts < 1:
             raise ValueError("max_generation_attempts must be at least 1.")
@@ -32,6 +34,9 @@ class ResearchDirector:
         self.llm_client = llm_client
         self.memory_retriever = memory_retriever
         self.max_generation_attempts = max_generation_attempts
+        self.available_experiment_adapters = sorted(
+            {name.strip() for name in (available_experiment_adapters or []) if name.strip()}
+        )
 
     def create_plan(self, question: str) -> ResearchPlan:
         """Generate, validate, and persist a research plan."""
@@ -132,13 +137,34 @@ Return ONLY a JSON object in this structure:
       "description": "clear, actionable task description",
       "task_type": "literature_search",
       "dependencies": [],
-      "required_tools": ["literature_search"]
+      "required_tools": ["literature_search"],
+      "experiments": [
+        {
+          "hypothesis": "The candidate method improves recall.",
+          "method": "Run the registered benchmark with fixed parameters.",
+          "adapter_name": "one of the available trusted adapters",
+          "parameters": {},
+          "success_criteria": [
+            {"metric": "recall", "operator": "gte", "threshold": 0.8}
+          ],
+          "repetitions": 3,
+          "random_seed": 42
+        }
+      ]
     }}
   ]
 }}
 
+Available trusted experiment adapter names:
+{json.dumps(self.available_experiment_adapters)}
+
 Rules:
 - Create only tasks necessary for the research.
+- Add structured experiments only when a suitable adapter is listed above.
+- Every experiment adapter_name must exactly match one listed trusted adapter.
+- Never invent adapter names, executable code, imports, or dependencies.
+- If no suitable trusted adapter is available, use an empty experiments array.
+- Experiment success criteria must use numeric metrics and one of: gt, gte, lt, lte, eq.
 - Tasks must form a directed acyclic graph.
 - Every dependency must reference another task_id.
 - Task IDs must be unique and non-empty.
@@ -267,6 +293,12 @@ Rules:
                 raise ValueError(f"Task {task.task_id} must have a task type.")
             if any(not tool.strip() for tool in task.required_tools):
                 raise ValueError(f"Task {task.task_id} contains a blank required tool.")
+            for experiment in task.experiments:
+                if experiment.adapter_name not in self.available_experiment_adapters:
+                    raise ValueError(
+                        f"Task {task.task_id} references unavailable experiment adapter "
+                        f"'{experiment.adapter_name}'."
+                    )
             if len(set(task.dependencies)) != len(task.dependencies):
                 raise ValueError(f"Task {task.task_id} contains duplicate dependencies.")
             if task.task_id in task.dependencies:
