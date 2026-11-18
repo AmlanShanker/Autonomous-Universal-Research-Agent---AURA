@@ -110,8 +110,12 @@ class ResearchWorker:
         try:
             requires_analysis = any(
                 not task.required_tools
-                and task.dependencies
+                and (task.dependencies or task.experiments)
                 and task.task_type.strip().lower() != "test"
+                and not (
+                    task.task_type.strip().lower() == "experiment"
+                    and task.experiments
+                )
                 for task in resolved_tasks
             )
             executor = TaskExecutor(
