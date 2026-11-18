@@ -227,6 +227,10 @@ def test_task_executor_extracts_and_persists_research_memory():
         "source": "test",
     }
 
+    assert memory.confidence == 0.5
+    assert memory.source_result_id == execution_result.result_id
+    assert memory.source_tool_id == execution_result.tool_id
+
     assert (
         memory.run_id
         == run.run_id

@@ -107,3 +107,18 @@ def test_mongodb_updates_existing_memory(database):
     assert stored.content == (
         "Dense retrieval significantly improved recall."
     )
+
+def test_mongodb_round_trips_memory_confidence_and_provenance(database):
+    item = create_memory_item()
+    item.confidence = 0.92
+    item.source_result_id = "result_456"
+    item.source_tool_id = "literature_search"
+
+    database.save_research_memory(item)
+
+    stored = database.get_research_memory(item.memory_id)
+
+    assert stored is not None
+    assert stored.confidence == 0.92
+    assert stored.source_result_id == "result_456"
+    assert stored.source_tool_id == "literature_search"

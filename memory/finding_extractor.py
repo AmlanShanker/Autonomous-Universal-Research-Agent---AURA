@@ -23,12 +23,8 @@ class ResearchFindingExtractor:
         """
         Extract reusable findings from an execution result.
 
-        Returns a list of dictionaries containing:
-
-        - content
-        - memory_type
-        - tags
-        - metadata
+        Each finding contains content, memory_type, tags,
+        metadata, and a confidence score between 0.0 and 1.0.
         """
 
         prompt = f"""
@@ -51,7 +47,8 @@ Return ONLY valid JSON in this exact structure:
             "content": "A concise reusable research finding.",
             "memory_type": "finding",
             "tags": ["tag1", "tag2"],
-            "metadata": {{}}
+            "metadata": {{}},
+            "confidence": 0.75
         }}
     ]
 }}
@@ -62,14 +59,16 @@ Rules:
 - Do not include raw execution logs.
 - Do not include generic statements such as "the task completed".
 - Keep each finding concise and reusable.
+- Assign confidence from 0.0 to 1.0 based on how directly the execution result supports the finding.
+- Use lower confidence for indirect, incomplete, or ambiguous evidence.
+- Confidence is an estimate of support strength, not a statistical probability.
+- If confidence cannot be assessed, use 0.5.
 - If there is no meaningful reusable knowledge, return:
   {{"findings": []}}
 """
 
         response = self.llm_client.generate(prompt)
-
         data = self._parse_json(response)
-
         findings = data.get("findings")
 
         if not isinstance(findings, list):
@@ -94,13 +93,10 @@ Rules:
                     "non-empty string content."
                 )
 
-            memory_type = finding.get(
-                "memory_type",
-                "finding",
-            )
-
+            memory_type = finding.get("memory_type", "finding")
             tags = finding.get("tags", [])
             metadata = finding.get("metadata", {})
+            confidence = finding.get("confidence", 0.5)
 
             if not isinstance(memory_type, str):
                 raise ValueError(
@@ -117,12 +113,23 @@ Rules:
                     "Finding 'metadata' must be an object."
                 )
 
+            if (
+                isinstance(confidence, bool)
+                or not isinstance(confidence, (int, float))
+                or not 0.0 <= confidence <= 1.0
+            ):
+                raise ValueError(
+                    "Finding 'confidence' must be a number "
+                    "between 0.0 and 1.0."
+                )
+
             validated_findings.append(
                 {
                     "content": content.strip(),
                     "memory_type": memory_type,
                     "tags": tags,
                     "metadata": metadata,
+                    "confidence": float(confidence),
                 }
             )
 

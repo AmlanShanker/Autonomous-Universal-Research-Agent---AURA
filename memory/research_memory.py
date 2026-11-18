@@ -27,6 +27,16 @@ class ResearchMemoryItem(BaseModel):
         default_factory=dict
     )
 
+    confidence: float = Field(
+        default=0.5,
+        ge=0.0,
+        le=1.0,
+        description="Estimated support strength, from 0.0 to 1.0.",
+    )
+
+    source_result_id: str | None = None
+    source_tool_id: str | None = None
+
 
 class ResearchMemory:
     """

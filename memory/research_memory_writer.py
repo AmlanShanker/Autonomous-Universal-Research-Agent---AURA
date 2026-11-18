@@ -25,6 +25,9 @@ class ResearchMemoryWriter:
         memory_type: str = "finding",
         tags: list[str] | None = None,
         metadata: dict | None = None,
+        confidence: float = 0.5,
+        source_result_id: str | None = None,
+        source_tool_id: str | None = None,
     ) -> ResearchMemoryItem:
         """
         Create and persist one reusable research-memory item.
@@ -44,6 +47,9 @@ class ResearchMemoryWriter:
             memory_type=memory_type,
             tags=tags or [],
             metadata=metadata or {},
+            confidence=confidence,
+            source_result_id=source_result_id,
+            source_tool_id=source_tool_id,
         )
 
         self.database.save_research_memory(item)

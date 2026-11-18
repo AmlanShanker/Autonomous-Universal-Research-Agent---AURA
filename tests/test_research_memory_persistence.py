@@ -142,3 +142,19 @@ def test_database_rejects_duplicate_memory_id():
             "already exists"
             in str(error)
         )
+
+def test_database_persists_memory_confidence_and_provenance():
+    database = InMemoryDatabase()
+    item = create_memory_item()
+    item.confidence = 0.87
+    item.source_result_id = "result_123"
+    item.source_tool_id = "literature_search"
+
+    database.save_research_memory(item)
+
+    stored = database.get_research_memory(item.memory_id)
+
+    assert stored is not None
+    assert stored.confidence == 0.87
+    assert stored.source_result_id == "result_123"
+    assert stored.source_tool_id == "literature_search"
