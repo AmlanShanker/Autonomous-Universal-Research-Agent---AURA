@@ -21,6 +21,7 @@ from storage.database.mongo import MongoDatabase
 from storage.models.experiment import ExperimentResult
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.report import ResearchReport
+from storage.models.execution import ExecutionResult
 from storage.models.research import ResearchPlan, ResearchRun, ResearchTask
 from tools.registry import (
     ToolRegistry,
@@ -274,6 +275,12 @@ def create_app(
         job.lease_expires_at = None
         db.save_research_job(job)
         return job
+
+    @app.get("/research/runs/{run_id}/executions", response_model=list[ExecutionResult], tags=["execution"])
+    def get_run_executions(run_id: str) -> list[ExecutionResult]:
+        if db.get_research_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Research run not found.")
+        return db.list_execution_results_for_run(run_id)
 
     @app.get("/research/runs/{run_id}/experiments", response_model=list[ExperimentResult], tags=["experiments"])
     def get_run_experiments(run_id: str) -> list[ExperimentResult]:
