@@ -817,6 +817,12 @@ class TaskExecutor:
                     "metadata",
                     {},
                 ),
+                confidence=finding.get(
+                    "confidence",
+                    0.5,
+                ),
+                source_result_id=execution_result.result_id,
+                source_tool_id=execution_result.tool_id,
             )
 
             print(
