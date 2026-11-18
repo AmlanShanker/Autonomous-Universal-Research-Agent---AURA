@@ -117,7 +117,7 @@ class MongoDatabase(Database):
         )
         document = self.research_jobs.find_one_and_update(
             {
-                "attempts": {"$lt": "$max_attempts"},
+                "$expr": {"$lt": ["$attempts", "$max_attempts"]},
                 "$or": [
                     {"status": ResearchJobStatus.QUEUED.value},
                     {
