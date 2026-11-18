@@ -91,10 +91,10 @@ def test_report_without_findings_explicitly_avoids_claiming_a_conclusion():
 
 def test_research_report_persistence_round_trip_in_memory_database():
     run, plan, tasks, executions, experiments = artifacts()
-    report = ResearchReportBuilder().build(run, plan, tasks, executions, experiments)
     database = InMemoryDatabase()
-
-    database.save_research_report(report)
+    report = ResearchReportBuilder().build_and_save(
+        database, run, plan, tasks, executions, experiments
+    )
 
     assert database.get_research_report(report.report_id) == report
     assert database.get_research_report("missing") is None
