@@ -123,9 +123,17 @@ class ResearchMemoryAnalyzer:
             potential_conflicts=conflicts,
         )
 
-    @staticmethod
-    def _tokens(value: str) -> set[str]:
-        return set(re.findall(r"[a-z0-9]+", value.lower()))
+    @classmethod
+    def _tokens(cls, value: str) -> set[str]:
+        """Tokenize findings while normalizing known verb inflections."""
+        terms = set(re.findall(r"[a-z0-9]+", value.lower()))
+        known_claim_terms = cls._POSITIVE | cls._NEGATIVE
+        normalized = set()
+        for term in terms:
+            if term.endswith("s") and term[:-1] in known_claim_terms:
+                term = term[:-1]
+            normalized.add(term)
+        return normalized
 
     @staticmethod
     def _jaccard(left: set[str], right: set[str]) -> float:
