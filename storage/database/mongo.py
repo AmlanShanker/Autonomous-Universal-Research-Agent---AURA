@@ -4,6 +4,7 @@ from pymongo import MongoClient
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
+from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
 from storage.models.research import (
     ResearchPlan,
@@ -24,6 +25,8 @@ class MongoDatabase(Database):
         self.tools = self.db["tools"]
         self.tool_implementations = self.db["tool_implementations"]
         self.execution_results = self.db["execution_results"]
+        self.experiments = self.db["experiments"]
+        self.experiment_results = self.db["experiment_results"]
         self.research_memory = self.db["research_memory"]
 
     def save_research_plan(self, plan: ResearchPlan) -> None:
@@ -49,6 +52,41 @@ class MongoDatabase(Database):
         self.execution_results.replace_one(
             {"result_id": result.result_id}, result.model_dump(), upsert=True
         )
+
+    def save_experiment(self, experiment: ExperimentDefinition) -> None:
+        self.experiments.replace_one(
+            {"experiment_id": experiment.experiment_id},
+            experiment.model_dump(mode="json"),
+            upsert=True,
+        )
+
+    def get_experiment(self, experiment_id: str) -> ExperimentDefinition | None:
+        document = self.experiments.find_one({"experiment_id": experiment_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ExperimentDefinition.model_validate(document)
+
+    def save_experiment_result(self, result: ExperimentResult) -> None:
+        self.experiment_results.replace_one(
+            {"result_id": result.result_id},
+            result.model_dump(mode="json"),
+            upsert=True,
+        )
+
+    def get_experiment_result(self, result_id: str) -> ExperimentResult | None:
+        document = self.experiment_results.find_one({"result_id": result_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ExperimentResult.model_validate(document)
+
+    def list_experiments_for_run(self, run_id: str) -> list[ExperimentDefinition]:
+        experiments = []
+        for document in self.experiments.find({"run_id": run_id}):
+            document.pop("_id", None)
+            experiments.append(ExperimentDefinition.model_validate(document))
+        return experiments
 
     def save_research_memory(self, item: ResearchMemoryItem) -> None:
         self.research_memory.replace_one(
