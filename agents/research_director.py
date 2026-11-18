@@ -164,8 +164,8 @@ Rules:
         current_prompt = prompt
 
         for attempt in range(1, self.max_generation_attempts + 1):
-            response = self.llm_client.generate(current_prompt)
             try:
+                response = self.llm_client.generate(current_prompt)
                 return validator(response)
             except Exception as error:
                 last_error = error
