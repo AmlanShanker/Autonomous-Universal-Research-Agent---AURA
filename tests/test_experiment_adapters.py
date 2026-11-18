@@ -103,3 +103,46 @@ def test_retrieval_benchmark_rejects_duplicate_memory_ids():
             },
             random_seed=None,
         )
+
+
+def test_retrieval_benchmark_runs_through_experiment_runner_and_persists_result():
+    from agents.experiment_runner import ExperimentRunner
+    from storage.database.memory import InMemoryDatabase
+    from storage.models.experiment import ExperimentDefinition, MetricCriterion
+
+    database = InMemoryDatabase()
+    experiment = ExperimentDefinition(
+        experiment_id="experiment_retrieval",
+        run_id="run_retrieval",
+        task_id="task_retrieval",
+        hypothesis="The retrieval engine returns relevant memories.",
+        method="Evaluate a labeled corpus with precision and recall at k.",
+        adapter_name="retrieval_benchmark",
+        parameters={
+            "memories": corpus(),
+            "queries": [
+                {
+                    "query": "RAG retrieval",
+                    "relevant_memory_ids": ["memory_rag"],
+                }
+            ],
+            "limit": 2,
+        },
+        success_criteria=[
+            MetricCriterion(metric="recall_at_k", operator="gte", threshold=1.0)
+        ],
+        repetitions=2,
+        random_seed=7,
+    )
+
+    result = ExperimentRunner(
+        database=database,
+        adapters=build_default_experiment_adapters(),
+    ).run(experiment)
+
+    assert result.status == "completed"
+    assert result.passed is True
+    assert result.metrics["recall_at_k"] == 1.0
+    assert result.metadata["random_seeds"] == [7, 8]
+    assert database.get_experiment(experiment.experiment_id) == experiment
+    assert database.get_experiment_result(result.result_id) == result
