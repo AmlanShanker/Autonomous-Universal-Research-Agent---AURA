@@ -1,7 +1,6 @@
 import json
 
 from storage.database.base import Database
-from storage.models.experiment import ExperimentSpec
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -139,17 +138,17 @@ Return ONLY a JSON object in this structure:
       "dependencies": [],
       "required_tools": ["literature_search"],
       "experiments": [
-        {
+        {{
           "hypothesis": "The candidate method improves recall.",
           "method": "Run the registered benchmark with fixed parameters.",
           "adapter_name": "one of the available trusted adapters",
-          "parameters": {},
+          "parameters": {{}},
           "success_criteria": [
-            {"metric": "recall", "operator": "gte", "threshold": 0.8}
+            {{"metric": "recall", "operator": "gte", "threshold": 0.8}}
           ],
           "repetitions": 3,
           "random_seed": 42
-        }
+        }}
       ]
     }}
   ]
