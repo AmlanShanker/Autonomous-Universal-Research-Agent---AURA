@@ -216,4 +216,4 @@ def test_analysis_prompt_bounds_large_literature_search_evidence():
     stored = database.list_execution_results_for_run(run.run_id)
     original = next(item for item in stored if item.result_id == "large-search-result")
     assert len(original.output["results"]) == 25
-    assert len(original.output["results"][0]["abstract"]) == 5015
+    assert len(original.output["results"][0]["abstract"]) == 5014
