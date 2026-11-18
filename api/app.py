@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from collections.abc import Callable
 
 from fastapi import FastAPI, Header, HTTPException
+from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from agents.experiment_adapters import build_default_experiment_adapters
@@ -19,6 +20,9 @@ from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.report import ResearchReport
 from storage.models.research import ResearchPlan, ResearchRun, ResearchTask
 from tools.registry import ToolRegistry
+
+
+load_dotenv()
 
 
 class ResearchQuestionRequest(BaseModel):
