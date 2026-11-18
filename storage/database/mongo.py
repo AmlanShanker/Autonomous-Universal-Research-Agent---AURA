@@ -79,7 +79,7 @@ class MongoDatabase(Database):
         job.touch()
         self.research_jobs.replace_one(
             {"job_id": job.job_id},
-            job.model_dump(mode="json"),
+            job.model_dump(),
             upsert=True,
         )
 
