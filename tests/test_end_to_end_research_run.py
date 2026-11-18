@@ -69,6 +69,18 @@ class FakeLLM:
 }
 """
 
+        if "evidence-bound research analyst" in prompt:
+            return """{
+                "summary": "Analyzed the supplied literature-search result.",
+                "findings": ["The supplied search result contains a paper relevant to retrieval performance."],
+                "evidence": [{"source_result_id": "tool-result", "claim": "The paper title and abstract match the query."}],
+                "artifacts": {"analyzed": true},
+                "limitations": ["The test uses a mocked search result."],
+                "recommendations": [],
+                "metrics": [],
+                "uncertainty": []
+            }"""
+
         raise AssertionError(
             "FakeLLM received an unexpected prompt."
         )
@@ -128,9 +140,10 @@ def create_tool_registry(
 def test_end_to_end_research_run_completes_with_context():
     database = InMemoryDatabase()
 
+    llm = FakeLLM()
     director = ResearchDirector(
         database=database,
-        llm_client=FakeLLM(),
+        llm_client=llm,
     )
 
     plan = director.create_plan(
@@ -162,6 +175,7 @@ def test_end_to_end_research_run_completes_with_context():
         tasks=tasks,
         run_id=run.run_id,
         tool_registry=tool_registry,
+        llm_client=llm,
     )
 
     executor.run()
