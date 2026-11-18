@@ -11,7 +11,7 @@ from storage.database.base import Database
 from storage.database.mongo import MongoDatabase
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.research import ResearchRunStatus
-from tools.registry import ToolRegistry
+from tools.registry import ToolRegistry, build_default_tool_registry
 
 
 class ResearchWorker:
@@ -27,7 +27,7 @@ class ResearchWorker:
     ):
         self.database = database
         self.worker_id = worker_id or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
-        self.tool_registry_factory = tool_registry_factory or (lambda store: ToolRegistry(database=store))
+        self.tool_registry_factory = tool_registry_factory or build_default_tool_registry
         self.experiment_adapters = experiment_adapters if experiment_adapters is not None else build_default_experiment_adapters()
         self.lease_seconds = max(60, lease_seconds)
 
