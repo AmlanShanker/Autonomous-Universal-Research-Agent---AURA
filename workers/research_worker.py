@@ -6,6 +6,7 @@ from threading import Event, Thread
 from collections.abc import Callable
 
 from agents.experiment_adapters import build_default_experiment_adapters
+from agents.llm_client import LLMClient
 from agents.task_executor import ExecutionCancelled, TaskExecutor
 from storage.database.base import Database
 from storage.database.mongo import MongoDatabase
@@ -107,6 +108,10 @@ class ResearchWorker:
         heartbeat_thread.start()
 
         try:
+            requires_analysis = any(
+                not task.required_tools and task.dependencies
+                for task in resolved_tasks
+            )
             executor = TaskExecutor(
                 tasks=resolved_tasks,
                 database=self.database,
@@ -115,6 +120,7 @@ class ResearchWorker:
                 experiment_adapters=self.experiment_adapters,
                 should_cancel=cancellation_requested,
                 progress_callback=update_progress,
+                llm_client=LLMClient() if requires_analysis else None,
             )
             executor.run()
         except ExecutionCancelled:
