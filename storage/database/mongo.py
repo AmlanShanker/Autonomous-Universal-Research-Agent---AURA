@@ -6,6 +6,7 @@ from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
+from storage.models.report import ResearchReport
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -28,6 +29,19 @@ class MongoDatabase(Database):
         self.experiments = self.db["experiments"]
         self.experiment_results = self.db["experiment_results"]
         self.research_memory = self.db["research_memory"]
+        self.research_reports = self.db["research_reports"]
+
+    def save_research_report(self, report: ResearchReport) -> None:
+        self.research_reports.replace_one(
+            {"report_id": report.report_id}, report.model_dump(mode="json"), upsert=True
+        )
+
+    def get_research_report(self, report_id: str) -> ResearchReport | None:
+        document = self.research_reports.find_one({"report_id": report_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ResearchReport.model_validate(document)
 
     def save_research_plan(self, plan: ResearchPlan) -> None:
         self.research_plans.replace_one({"question": plan.question}, plan.model_dump(), upsert=True)
