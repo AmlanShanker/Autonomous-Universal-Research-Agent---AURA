@@ -120,3 +120,34 @@ def test_experiment_text_fields_cannot_be_blank():
         pass
     else:
         raise AssertionError("Expected blank hypothesis to be rejected.")
+
+
+def test_experiment_rejects_non_finite_criterion_threshold():
+    from pydantic import ValidationError
+
+    try:
+        make_experiment(
+            success_criteria=[
+                MetricCriterion(metric="recall", operator="gte", threshold=float("nan"))
+            ]
+        )
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("Expected a non-finite threshold to be rejected.")
+
+
+def test_experiment_rejects_duplicate_criterion_metrics():
+    from pydantic import ValidationError
+
+    try:
+        make_experiment(
+            success_criteria=[
+                MetricCriterion(metric="recall", operator="gte", threshold=0.8),
+                MetricCriterion(metric="recall", operator="lt", threshold=0.95),
+            ]
+        )
+    except ValidationError:
+        pass
+    else:
+        raise AssertionError("Expected duplicate criterion metrics to be rejected.")
