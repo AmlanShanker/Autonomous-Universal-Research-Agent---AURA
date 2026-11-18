@@ -22,7 +22,11 @@ from storage.models.experiment import ExperimentResult
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.report import ResearchReport
 from storage.models.research import ResearchPlan, ResearchRun, ResearchTask
-from tools.registry import ToolRegistry, build_default_tool_registry
+from tools.registry import (
+    ToolRegistry,
+    build_default_tool_registry,
+    describe_default_tools,
+)
 
 
 load_dotenv()
@@ -76,6 +80,7 @@ def create_app(
                 available_experiment_adapters=list(adapters),
                 available_tools=registry_factory(db).list_tools(),
                 experiment_adapter_specs=describe_default_experiment_adapters(),
+                available_tool_specs=describe_default_tools(),
             )
         return configured_director
 
