@@ -56,6 +56,9 @@ class TaskContextBuilder:
                     "memory_type": item.memory_type,
                     "tags": item.tags,
                     "metadata": item.metadata,
+                    "confidence": item.confidence,
+                    "source_result_id": item.source_result_id,
+                    "source_tool_id": item.source_tool_id,
                 }
                 for item in (prior_findings or [])
             ],
