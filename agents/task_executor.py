@@ -41,8 +41,12 @@ class TaskExecutor:
     so downstream tasks can consume evidence produced by
     their dependencies.
 
-    TaskContextBuilder converts that evidence into a structured
-    execution-context payload.
+    TaskContextBuilder converts dependency evidence and retrieved
+    findings from earlier runs into a structured execution context.
+
+    When a ResearchMemoryRetriever is provided, relevant findings
+    from previous runs are injected into each task's context.
+    Findings from the current run are excluded.
 
     When a ResearchFindingExtractor and ResearchMemoryWriter
     are provided, successful execution results are also processed
