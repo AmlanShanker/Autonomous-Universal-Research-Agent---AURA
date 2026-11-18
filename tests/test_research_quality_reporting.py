@@ -116,3 +116,15 @@ def test_quality_assessment_penalizes_tool_tasks_without_successful_execution():
     assessment = ResearchQualityEvaluator().evaluate(run, tasks, [], experiments)
 
     assert assessment.dimensions["execution_reliability"].score == 0.0
+
+
+
+def test_quality_assessment_marks_reproducibility_unassessed_without_experiments():
+    run, _, tasks, executions, _ = artifacts()
+
+    assessment = ResearchQualityEvaluator().evaluate(run, tasks, executions, [])
+
+    assert assessment.dimensions["experiment_reproducibility"].score == 0.0
+    assert "Not assessed" in assessment.dimensions["experiment_reproducibility"].details
+    assert assessment.overall_score == 1.0
+    assert any("no experiments were executed" in warning for warning in assessment.warnings)
