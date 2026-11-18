@@ -733,3 +733,24 @@ def build_default_tool_registry(database: Database) -> ToolRegistry:
         database.save_tool(definition)
 
     return registry
+
+
+
+def describe_default_tools() -> dict[str, dict]:
+    """Return input contracts for the application's built-in executable tools."""
+    return {
+        "literature_search": {
+            "description": "Search scholarly literature on arXiv.",
+            "required_inputs": {"query": "non-empty string"},
+            "optional_inputs": {"max_results": "integer from 1 to 25; defaults to 5"},
+        },
+        "dataset_download": {
+            "description": "Download an HTTP/HTTPS dataset into storage/downloads.",
+            "required_inputs": {
+                "source_url": "HTTP or HTTPS URL",
+                "destination_path": "relative path inside storage/downloads",
+            },
+            "optional_inputs": {"checksum": "optional SHA-256 hex digest"},
+        },
+    }
+}
