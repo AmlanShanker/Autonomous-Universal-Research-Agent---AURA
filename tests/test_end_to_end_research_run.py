@@ -72,8 +72,8 @@ class FakeLLM:
         if "evidence-bound research analyst" in prompt:
             return """{
                 "summary": "Analyzed the supplied literature-search result.",
-                "findings": ["The supplied search result contains a paper relevant to retrieval performance."],
-                "evidence": [{"source_result_id": "tool-result", "claim": "The paper title and abstract match the query."}],
+                "findings": [],
+                "evidence": [],
                 "artifacts": {"analyzed": true},
                 "limitations": ["The test uses a mocked search result."],
                 "recommendations": [],
