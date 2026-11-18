@@ -165,9 +165,12 @@ def create_app(
         if run is None:
             raise HTTPException(status_code=404, detail="Research run not found.")
 
-        if idempotency_key:
+        normalized_key = idempotency_key.strip() if idempotency_key is not None else None
+        if idempotency_key is not None and (not normalized_key or len(normalized_key) > 200):
+            raise HTTPException(status_code=422, detail="Idempotency-Key must contain 1 to 200 characters.")
+        if normalized_key:
             try:
-                existing = db.get_research_job_by_idempotency_key(idempotency_key.strip())
+                existing = db.get_research_job_by_idempotency_key(normalized_key)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
             if existing is not None:
@@ -191,13 +194,13 @@ def create_app(
             job_id=str(uuid.uuid4()),
             run_id=run_id,
             total_tasks=len(run.tasks),
-            idempotency_key=idempotency_key,
+            idempotency_key=normalized_key,
         )
         try:
             db.save_research_job(job)
         except Exception as exc:
-            if idempotency_key:
-                existing = db.get_research_job_by_idempotency_key(idempotency_key.strip())
+            if normalized_key:
+                existing = db.get_research_job_by_idempotency_key(normalized_key)
                 if existing is not None and existing.run_id == run_id:
                     return existing
             raise HTTPException(status_code=409, detail="Could not create a unique research job.") from exc
