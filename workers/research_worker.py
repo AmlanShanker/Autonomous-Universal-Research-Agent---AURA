@@ -77,6 +77,16 @@ class ResearchWorker:
             self.database.save_research_job(latest)
             self.database.renew_research_job_lease(job.job_id, self.worker_id, self.lease_seconds)
 
+        heartbeat_stop = Event()
+
+        def heartbeat() -> None:
+            while not heartbeat_stop.wait(max(10, self.lease_seconds // 3)):
+                if not self.database.renew_research_job_lease(job.job_id, self.worker_id, self.lease_seconds):
+                    return
+
+        heartbeat_thread = Thread(target=heartbeat, daemon=True)
+        heartbeat_thread.start()
+
         try:
             executor = TaskExecutor(
                 tasks=resolved_tasks,
@@ -94,6 +104,8 @@ class ResearchWorker:
                 latest_run.transition_to(ResearchRunStatus.CANCELLED)
                 self.database.save_research_run(latest_run)
             latest_job = self.database.get_research_job(job.job_id) or job
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=2)
             latest_job.status = ResearchJobStatus.CANCELLED
             latest_job.finished_at = datetime.now(timezone.utc)
             latest_job.lease_expires_at = None
@@ -101,9 +113,13 @@ class ResearchWorker:
             self.database.save_research_job(latest_job)
             return
         except Exception as exc:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=2)
             self._finish_failed(job, str(exc))
             return
 
+        heartbeat_stop.set()
+        heartbeat_thread.join(timeout=2)
         latest_job = self.database.get_research_job(job.job_id) or job
         if latest_job.status == ResearchJobStatus.CANCEL_REQUESTED:
             latest_job.status = ResearchJobStatus.CANCELLED
@@ -122,12 +138,12 @@ class ResearchWorker:
         latest.error = (message or "Unknown worker error.")[:2000]
         latest.lease_expires_at = None
         latest.worker_id = None
-        latest.finished_at = datetime.now(timezone.utc)
         latest.status = (
             ResearchJobStatus.QUEUED
             if latest.attempts < latest.max_attempts
             else ResearchJobStatus.FAILED
         )
+        latest.finished_at = None if latest.status == ResearchJobStatus.QUEUED else datetime.now(timezone.utc)
         self.database.save_research_job(latest)
 
     def run_forever(self, poll_interval: float = 2.0, stop_event: Event | None = None) -> None:
