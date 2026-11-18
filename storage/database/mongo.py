@@ -16,7 +16,7 @@ from storage.models.research import (
 
 class MongoDatabase(Database):
     def __init__(self, connection_string: str, database_name: str):
-        self.client = MongoClient(connection_string)
+        self.client = MongoClient(connection_string, tz_aware=True)
         self.db = self.client[database_name]
         self.research_plans = self.db["research_plans"]
         self.research_tasks = self.db["research_tasks"]
