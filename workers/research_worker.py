@@ -160,12 +160,20 @@ class ResearchWorker:
         latest.error = (message or "Unknown worker error.")[:2000]
         latest.lease_expires_at = None
         latest.worker_id = None
-        latest.status = (
-            ResearchJobStatus.QUEUED
-            if latest.attempts < latest.max_attempts
-            else ResearchJobStatus.FAILED
-        )
-        latest.finished_at = None if latest.status == ResearchJobStatus.QUEUED else datetime.now(timezone.utc)
+        if latest.status == ResearchJobStatus.CANCEL_REQUESTED:
+            run = self.database.get_research_run(job.run_id)
+            if run is not None and run.status != ResearchRunStatus.COMPLETED:
+                run.status = ResearchRunStatus.CANCELLED
+                self.database.save_research_run(run)
+            latest.status = ResearchJobStatus.CANCELLED
+            latest.finished_at = datetime.now(timezone.utc)
+        else:
+            latest.status = (
+                ResearchJobStatus.QUEUED
+                if latest.attempts < latest.max_attempts
+                else ResearchJobStatus.FAILED
+            )
+            latest.finished_at = None if latest.status == ResearchJobStatus.QUEUED else datetime.now(timezone.utc)
         self.database.save_research_job(latest)
 
     def run_forever(self, poll_interval: float = 2.0, stop_event: Event | None = None) -> None:
