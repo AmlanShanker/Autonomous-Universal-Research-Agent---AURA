@@ -101,3 +101,32 @@ def test_run_experiments_endpoint_returns_empty_list_for_new_run():
 
     assert response.status_code == 200
     assert response.json() == []
+
+
+
+def test_execute_endpoint_runs_a_task_graph_without_tools():
+    client, database = client_with_fakes()
+    created = client.post("/research/runs", json={"question": "Can AURA execute a task?"}).json()
+    run_id = created["run"]["run_id"]
+
+    response = client.post(f"/research/runs/{run_id}/execute")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "completed"
+    assert database.get_research_run(run_id).completed_tasks == ["task_api_1"]
+
+
+def test_execute_endpoint_rejects_unknown_run():
+    client, _ = client_with_fakes()
+
+    response = client.post("/research/runs/missing/execute")
+
+    assert response.status_code == 404
+
+
+def test_report_endpoint_rejects_unknown_run():
+    client, _ = client_with_fakes()
+
+    response = client.post("/research/runs/missing/report")
+
+    assert response.status_code == 404
