@@ -54,6 +54,10 @@ class Database(ABC):
         pass
 
     @abstractmethod
+    def list_research_jobs_for_run(self, run_id: str) -> list[ResearchJob]:
+        pass
+
+    @abstractmethod
     def claim_next_research_job(self, worker_id: str, lease_seconds: int = 3600) -> ResearchJob | None:
         pass
 
