@@ -28,6 +28,7 @@ class ResearchMemoryRetriever:
         "at",
         "be",
         "by",
+        "does",
         "for",
         "from",
         "how",
