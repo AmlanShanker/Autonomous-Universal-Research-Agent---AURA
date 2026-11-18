@@ -5,6 +5,7 @@ from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
+from storage.models.job import ResearchJob
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -38,6 +39,26 @@ class Database(ABC):
 
     @abstractmethod
     def list_experiment_results_for_run(self, run_id: str) -> list[ExperimentResult]:
+        pass
+
+    @abstractmethod
+    def save_research_job(self, job: ResearchJob) -> None:
+        pass
+
+    @abstractmethod
+    def get_research_job(self, job_id: str) -> ResearchJob | None:
+        pass
+
+    @abstractmethod
+    def get_research_job_by_idempotency_key(self, key: str) -> ResearchJob | None:
+        pass
+
+    @abstractmethod
+    def claim_next_research_job(self, worker_id: str, lease_seconds: int = 3600) -> ResearchJob | None:
+        pass
+
+    @abstractmethod
+    def renew_research_job_lease(self, job_id: str, worker_id: str, lease_seconds: int = 3600) -> bool:
         pass
 
     @abstractmethod
