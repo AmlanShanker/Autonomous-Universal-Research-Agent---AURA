@@ -140,3 +140,80 @@ def test_tool_free_task_without_dependency_evidence_is_not_counted_as_coverage()
 
     assert assessment.dimensions["evidence_coverage"].score == 0.0
     assert "task_empty" in assessment.warnings[0]
+
+
+def test_analysis_prompt_bounds_large_literature_search_evidence():
+    database = InMemoryDatabase()
+    run = ResearchRun(
+        run_id="run-bounded-analysis",
+        research_question="Review retrieval methods.",
+        status=ResearchRunStatus.PLANNED,
+        tasks=["search", "synthesis"],
+        completed_tasks=["search"],
+    )
+    database.save_research_run(run)
+    search_task = ResearchTask(
+        task_id="search",
+        description="Search literature.",
+        task_type="literature_search",
+        status="completed",
+    )
+    synthesis_task = ResearchTask(
+        task_id="synthesis",
+        description="Synthesize the evidence.",
+        task_type="synthesis",
+        dependencies=["search"],
+    )
+    database.save_research_task(search_task)
+    database.save_research_task(synthesis_task)
+    database.save_execution_result(ExecutionResult(
+        result_id="large-search-result",
+        run_id=run.run_id,
+        task_id="search",
+        tool_id="literature_search",
+        implementation_id="literature_search_v1",
+        output={
+            "query": "agent memory",
+            "source": "arXiv",
+            "count": 25,
+            "results": [
+                {
+                    "title": f"Paper {index}",
+                    "publication_year": "2026",
+                    "authors": ["Author"],
+                    "abstract": ("A" * 5000) + f" unique-tail-{index}",
+                    "url": f"https://arxiv.org/abs/{index}",
+                }
+                for index in range(25)
+            ],
+        },
+        metadata={"execution_type": "tool"},
+    ))
+    analysis = {
+        "summary": "Bounded evidence was analyzed.",
+        "findings": ["The retrieved set contains literature records."],
+        "evidence": [{"source_result_id": "large-search-result", "claim": "The search result contains 25 records."}],
+        "artifacts": {},
+        "limitations": ["Only a bounded subset was included in the prompt."],
+        "recommendations": [],
+        "metrics": [],
+        "uncertainty": [],
+    }
+    llm = FakeLLM(json.dumps(analysis))
+    executor = TaskExecutor(
+        tasks=[search_task, synthesis_task],
+        database=database,
+        run_id=run.run_id,
+        tool_registry=ToolRegistry(database),
+        llm_client=llm,
+    )
+    executor.run()
+    assert llm.prompt is not None
+    assert len(llm.prompt) < 15000
+    assert "unique-tail-0" not in llm.prompt
+    assert '"records_omitted": 21' in llm.prompt
+    assert "large-search-result" in llm.prompt
+    stored = database.list_execution_results_for_run(run.run_id)
+    original = next(item for item in stored if item.result_id == "large-search-result")
+    assert len(original.output["results"]) == 25
+    assert len(original.output["results"][0]["abstract"]) == 5015
