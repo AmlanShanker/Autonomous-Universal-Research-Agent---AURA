@@ -18,9 +18,6 @@ class ResearchQualityEvaluator:
     ) -> ResearchQualityAssessment:
         warnings: list[str] = []
         task_ids = {task.task_id for task in tasks}
-        execution_by_task = Counter(
-            result.task_id for result in execution_results if result.run_id == run.run_id
-        )
         experiment_by_task = Counter(
             result.task_id for result in experiment_results if result.run_id == run.run_id
         )
@@ -54,7 +51,6 @@ class ResearchQualityEvaluator:
         execution_score = (
             len(successful_tool_tasks) / len(tool_task_ids) if tool_task_ids else 1.0
         )
-        successful_executions = sum(r.status == "success" for r in relevant_executions)
         if any(r.status != "success" for r in relevant_executions):
             warnings.append("One or more tool executions did not succeed.")
 
