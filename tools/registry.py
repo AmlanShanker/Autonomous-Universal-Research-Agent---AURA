@@ -753,4 +753,3 @@ def describe_default_tools() -> dict[str, dict]:
             "optional_inputs": {"checksum": "optional SHA-256 hex digest"},
         },
     }
-}
