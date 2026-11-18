@@ -1,3 +1,4 @@
+from agents.experiment_adapters import build_default_experiment_adapters
 from agents.llm_client import LLMClient
 from agents.research_director import ResearchDirector
 from agents.task_executor import TaskExecutor
@@ -15,6 +16,12 @@ def main():
     database = InMemoryDatabase()
 
     # -----------------------------
+    # Trusted Experiment Adapters
+    # -----------------------------
+
+    experiment_adapters = build_default_experiment_adapters()
+
+    # -----------------------------
     # LLM
     # -----------------------------
 
@@ -27,6 +34,7 @@ def main():
     director = ResearchDirector(
         database=database,
         llm_client=llm_client,
+        available_experiment_adapters=list(experiment_adapters),
     )
 
     # -----------------------------
@@ -100,71 +108,54 @@ def main():
     # -----------------------------
 
     print("\nRegistered Tools:")
-
     for tool_name in tool_registry.list_tools():
         print(f"- {tool_name}")
+
+    # -----------------------------
+    # Trusted Experiment Adapters
+    # -----------------------------
+
+    print("\nTrusted Experiment Adapters:")
+    for adapter_name in experiment_adapters:
+        print(f"- {adapter_name}")
 
     # -----------------------------
     # Research Tasks
     # -----------------------------
 
     print("\nResearch Tasks:")
-
     for task in tasks:
-
         print(
             f"\n[{task.task_id}] "
             f"{task.task_type}"
         )
-
-        print(
-            f"  {task.description}"
-        )
-
-        print(
-            f"  Dependencies: "
-            f"{task.dependencies}"
-        )
-
-        print(
-            f"  Required Tools: "
-            f"{task.required_tools}"
-        )
+        print(f"  {task.description}")
+        print(f"  Dependencies: {task.dependencies}")
+        print(f"  Required Tools: {task.required_tools}")
+        for experiment in task.experiments:
+            print(f"  Experiment adapter: {experiment.adapter_name}")
 
     # -----------------------------
     # Database State
     # -----------------------------
 
     print("\nDatabase State:")
-
-    print(
-        f"Plans: "
-        f"{len(database.research_plans)}"
-    )
-
-    print(
-        f"Runs: "
-        f"{len(database.research_runs)}"
-    )
-
-    print(
-        f"Tasks: "
-        f"{len(database.research_tasks)}"
-    )
+    print(f"Plans: {len(database.research_plans)}")
+    print(f"Runs: {len(database.research_runs)}")
+    print(f"Tasks: {len(database.research_tasks)}")
 
     # -----------------------------
     # Task Execution
     # -----------------------------
 
     print("\n=== TASK EXECUTION ===")
-
     executor = TaskExecutor(
         tasks=tasks,
         database=database,
         run_id=run.run_id,
         tool_registry=tool_registry,
+        experiment_adapters=experiment_adapters,
     )
-
     executor.run()
 
     # -----------------------------
@@ -172,32 +163,14 @@ def main():
     # -----------------------------
 
     print("\n=== FINAL RUN STATE ===")
-
     final_run = database.get_research_run(
         run.run_id
     )
-
     if final_run is not None:
-
-        print(
-            f"Run ID: "
-            f"{final_run.run_id}"
-        )
-
-        print(
-            f"Status: "
-            f"{final_run.status}"
-        )
-
-        print(
-            f"Completed Tasks: "
-            f"{final_run.completed_tasks}"
-        )
-
-        print(
-            f"Failed Tasks: "
-            f"{final_run.failed_tasks}"
-        )
+        print(f"Run ID: {final_run.run_id}")
+        print(f"Status: {final_run.status}")
+        print(f"Completed Tasks: {final_run.completed_tasks}")
+        print(f"Failed Tasks: {final_run.failed_tasks}")
 
     print("\n=== AURA RUN COMPLETE ===")
 
