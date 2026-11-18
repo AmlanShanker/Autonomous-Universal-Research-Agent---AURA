@@ -45,6 +45,26 @@ class ResearchWorker:
             self._finish_failed(job, "Research run was not found.")
             return
 
+        if run.status == ResearchRunStatus.COMPLETED:
+            latest_job = self.database.get_research_job(job.job_id) or job
+            latest_job.status = ResearchJobStatus.SUCCEEDED
+            latest_job.progress = 100.0
+            latest_job.completed_tasks = len(run.completed_tasks)
+            latest_job.total_tasks = len(run.tasks)
+            latest_job.finished_at = datetime.now(timezone.utc)
+            latest_job.worker_id = None
+            latest_job.lease_expires_at = None
+            self.database.save_research_job(latest_job)
+            return
+        if run.status == ResearchRunStatus.CANCELLED:
+            latest_job = self.database.get_research_job(job.job_id) or job
+            latest_job.status = ResearchJobStatus.CANCELLED
+            latest_job.finished_at = datetime.now(timezone.utc)
+            latest_job.worker_id = None
+            latest_job.lease_expires_at = None
+            self.database.save_research_job(latest_job)
+            return
+
         if run.status == ResearchRunStatus.FAILED:
             run.status = ResearchRunStatus.PLANNED
             run.failed_tasks = []
