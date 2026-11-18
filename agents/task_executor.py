@@ -1,4 +1,5 @@
 ﻿import uuid
+from collections.abc import Callable
 
 from agents.capability_gap_detector import CapabilityGapDetector
 from agents.context_builder import TaskContextBuilder
@@ -65,6 +66,8 @@ class TaskExecutor:
         memory_writer: ResearchMemoryWriter | None = None,
         memory_retriever: ResearchMemoryRetriever | None = None,
         experiment_adapters: dict | None = None,
+        should_cancel: Callable[[], bool] | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ):
         self.tasks = {
             task.task_id: task
@@ -72,6 +75,8 @@ class TaskExecutor:
         }
         self.database = database
         self.run_id = run_id
+        self.should_cancel = should_cancel or (lambda: False)
+        self.progress_callback = progress_callback
         self.tool_registry = tool_registry
         self.finding_extractor = finding_extractor
         self.memory_writer = memory_writer
@@ -340,6 +345,9 @@ class TaskExecutor:
             print(
                 f"Completed: {task.task_id}"
             )
+
+            if self.progress_callback is not None:
+                self.progress_callback(len(self.completed_tasks), len(self.tasks))
 
             return True
 
@@ -1092,6 +1100,9 @@ class TaskExecutor:
         while len(
             self.completed_tasks
         ) < len(self.tasks):
+            if self.should_cancel():
+                raise ExecutionCancelled("Research execution cancellation was requested.")
+
             ready_tasks = (
                 self.get_ready_tasks()
             )
@@ -1165,6 +1176,8 @@ class TaskExecutor:
             progress_made = False
 
             for task in ready_tasks:
+                if self.should_cancel():
+                    raise ExecutionCancelled("Research execution cancellation was requested.")
                 completed = self.execute_task(
                     task
                 )
@@ -1452,3 +1465,6 @@ class ToolImplementationError(Exception):
         super().__init__(
             message
         )
+
+class ExecutionCancelled(Exception):
+    """Raised when a worker requests cooperative cancellation between tasks."""
