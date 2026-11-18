@@ -535,6 +535,16 @@ class TaskExecutor:
             )
 
             experiment_results = self._execute_task_experiments(task)
+            if task.task_type.strip().lower() == "experiment" and experiment_results:
+                # The experiment adapter already persisted and added each
+                # result to ResearchContext. Do not create a duplicate
+                # internal-analysis record for the same experiment output.
+                return {
+                    "status": "completed",
+                    "task_id": task.task_id,
+                    "experiments": experiment_results,
+                    "research_context": self.build_task_context(task),
+                }
             return self._execute_analysis_task(
                 task,
                 experiment_results=experiment_results,
