@@ -95,7 +95,7 @@ def test_create_plan_rejects_missing_success_criteria():
     with pytest.raises(RuntimeError, match="success criterion"):
         director.create_plan(QUESTION)
 
-    assert database.research_plans == []
+    assert database.research_plans == {}
 
 
 def test_create_plan_does_not_retry_beyond_configured_attempts():
@@ -105,7 +105,7 @@ def test_create_plan_does_not_retry_beyond_configured_attempts():
         director.create_plan(QUESTION)
 
     assert len(llm.prompts) == 2
-    assert database.research_plans == []
+    assert database.research_plans == {}
 
 
 def test_create_tasks_retries_invalid_graph_then_persists_valid_tasks():
