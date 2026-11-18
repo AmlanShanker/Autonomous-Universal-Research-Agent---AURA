@@ -805,7 +805,19 @@ class TaskExecutor:
         dependency_items = context.get("dependencies", [])
         experiment_results = experiment_results or []
 
-        if (
+        if task.task_type.strip().lower() == "experiment" and experiment_results:
+            analysis = {
+                "summary": "Trusted experiment execution completed; structured experiment outputs are persisted separately.",
+                "findings": [],
+                "evidence": [],
+                "artifacts": {"experiment_results": experiment_results},
+                "limitations": [],
+                "recommendations": [],
+                "metrics": [],
+                "uncertainty": [],
+            }
+            analysis_status = "completed"
+        elif (
             (not dependency_items and not experiment_results)
             or task.task_type.strip().lower() == "test"
         ):
