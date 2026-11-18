@@ -36,6 +36,15 @@ class InMemoryDatabase(Database):
     def save_research_plan(self, plan: ResearchPlan) -> None:
         self.research_plans[plan.question] = plan
 
+    def get_research_plan(self, question: str) -> ResearchPlan | None:
+        return self.research_plans.get(question)
+
+    def list_execution_results_for_run(self, run_id: str) -> list[ExecutionResult]:
+        return [item for item in self.execution_results.values() if item.run_id == run_id]
+
+    def list_experiment_results_for_run(self, run_id: str) -> list[ExperimentResult]:
+        return [item for item in self.experiment_results.values() if item.run_id == run_id]
+
     def save_research_task(self, task: ResearchTask) -> None:
         self.research_tasks[task.task_id] = task
 
