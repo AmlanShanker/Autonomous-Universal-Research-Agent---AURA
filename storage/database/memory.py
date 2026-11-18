@@ -1,10 +1,12 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from threading import Lock
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
+from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -26,6 +28,8 @@ class InMemoryDatabase(Database):
         self.experiment_results: dict[str, ExperimentResult] = {}
         self.research_memory: dict[str, ResearchMemoryItem] = {}
         self.research_reports: dict[str, ResearchReport] = {}
+        self.research_jobs: dict[str, ResearchJob] = {}
+        self._job_lock = Lock()
 
     def save_research_report(self, report: ResearchReport) -> None:
         self.research_reports[report.report_id] = report
@@ -44,6 +48,52 @@ class InMemoryDatabase(Database):
 
     def list_experiment_results_for_run(self, run_id: str) -> list[ExperimentResult]:
         return [item for item in self.experiment_results.values() if item.run_id == run_id]
+
+    def save_research_job(self, job: ResearchJob) -> None:
+        with self._job_lock:
+            job.touch()
+            self.research_jobs[job.job_id] = job
+
+    def get_research_job(self, job_id: str) -> ResearchJob | None:
+        with self._job_lock:
+            return self.research_jobs.get(job_id)
+
+    def get_research_job_by_idempotency_key(self, key: str) -> ResearchJob | None:
+        with self._job_lock:
+            return next((job for job in self.research_jobs.values() if job.idempotency_key == key), None)
+
+    def claim_next_research_job(self, worker_id: str, lease_seconds: int = 3600) -> ResearchJob | None:
+        now = datetime.now(timezone.utc)
+        with self._job_lock:
+            candidates = sorted(self.research_jobs.values(), key=lambda job: job.created_at)
+            for job in candidates:
+                expired = job.status == ResearchJobStatus.RUNNING and job.lease_expires_at is not None and job.lease_expires_at <= now
+                if job.status != ResearchJobStatus.QUEUED and not expired:
+                    continue
+                if job.attempts >= job.max_attempts:
+                    job.status = ResearchJobStatus.FAILED
+                    job.error = job.error or "Maximum worker attempts exceeded."
+                    job.finished_at = now
+                    job.touch()
+                    continue
+                job.status = ResearchJobStatus.RUNNING
+                job.attempts += 1
+                job.worker_id = worker_id
+                job.lease_expires_at = now + timedelta(seconds=lease_seconds)
+                job.started_at = job.started_at or now
+                job.error = None
+                job.touch()
+                return job
+        return None
+
+    def renew_research_job_lease(self, job_id: str, worker_id: str, lease_seconds: int = 3600) -> bool:
+        with self._job_lock:
+            job = self.research_jobs.get(job_id)
+            if job is None or job.worker_id != worker_id or job.status not in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}:
+                return False
+            job.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
+            job.touch()
+            return True
 
     def save_research_task(self, task: ResearchTask) -> None:
         self.research_tasks[task.task_id] = task
