@@ -90,7 +90,11 @@ class ResearchQualityEvaluator:
             ),
             "experiment_reproducibility": QualityDimension(
                 score=reproducibility_score,
-                details=f"{reproducible} of {len(relevant_experiments)} experiment results include seed provenance.",
+                details=(
+                    f"{reproducible} of {len(relevant_experiments)} experiment results include seed provenance."
+                    if relevant_experiments
+                    else "Not assessed: no experiments were executed for this run."
+                ),
             ),
             "task_completion": QualityDimension(
                 score=completion_score,
