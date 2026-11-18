@@ -1,12 +1,13 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
-from pymongo import MongoClient
+from pymongo import MongoClient, ReturnDocument
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
+from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -30,6 +31,13 @@ class MongoDatabase(Database):
         self.experiment_results = self.db["experiment_results"]
         self.research_memory = self.db["research_memory"]
         self.research_reports = self.db["research_reports"]
+        self.research_jobs = self.db["research_jobs"]
+        self.research_jobs.create_index(
+            "idempotency_key",
+            unique=True,
+            partialFilterExpression={"idempotency_key": {"$type": "string"}},
+        )
+        self.research_jobs.create_index([("status", 1), ("created_at", 1)])
 
     def save_research_report(self, report: ResearchReport) -> None:
         self.research_reports.replace_one(
@@ -66,6 +74,92 @@ class MongoDatabase(Database):
             document.pop("_id", None)
             results.append(ExperimentResult.model_validate(document))
         return results
+
+    def save_research_job(self, job: ResearchJob) -> None:
+        job.touch()
+        self.research_jobs.replace_one(
+            {"job_id": job.job_id},
+            job.model_dump(mode="json"),
+            upsert=True,
+        )
+
+    def get_research_job(self, job_id: str) -> ResearchJob | None:
+        document = self.research_jobs.find_one({"job_id": job_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ResearchJob.model_validate(document)
+
+    def get_research_job_by_idempotency_key(self, key: str) -> ResearchJob | None:
+        document = self.research_jobs.find_one({"idempotency_key": key})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ResearchJob.model_validate(document)
+
+    def claim_next_research_job(self, worker_id: str, lease_seconds: int = 3600) -> ResearchJob | None:
+        now = datetime.now(timezone.utc)
+        lease_expiry = now + timedelta(seconds=lease_seconds)
+        self.research_jobs.update_many(
+            {
+                "status": ResearchJobStatus.RUNNING.value,
+                "lease_expires_at": {"$lte": now},
+                "$expr": {"$gte": ["$attempts", "$max_attempts"]},
+            },
+            {
+                "$set": {
+                    "status": ResearchJobStatus.FAILED.value,
+                    "error": "Maximum worker attempts exceeded.",
+                    "finished_at": now,
+                    "updated_at": now,
+                }
+            },
+        )
+        document = self.research_jobs.find_one_and_update(
+            {
+                "attempts": {"$lt": "$max_attempts"},
+                "$or": [
+                    {"status": ResearchJobStatus.QUEUED.value},
+                    {
+                        "status": ResearchJobStatus.RUNNING.value,
+                        "lease_expires_at": {"$lte": now},
+                    },
+                ],
+            },
+            {
+                "$set": {
+                    "status": ResearchJobStatus.RUNNING.value,
+                    "worker_id": worker_id,
+                    "lease_expires_at": lease_expiry,
+                    "started_at": now,
+                    "error": None,
+                    "updated_at": now,
+                },
+                "$inc": {"attempts": 1},
+            },
+            sort=[("created_at", 1)],
+            return_document=ReturnDocument.AFTER,
+        )
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ResearchJob.model_validate(document)
+
+    def renew_research_job_lease(self, job_id: str, worker_id: str, lease_seconds: int = 3600) -> bool:
+        result = self.research_jobs.update_one(
+            {
+                "job_id": job_id,
+                "worker_id": worker_id,
+                "status": {"$in": [ResearchJobStatus.RUNNING.value, ResearchJobStatus.CANCEL_REQUESTED.value]},
+            },
+            {
+                "$set": {
+                    "lease_expires_at": datetime.now(timezone.utc) + timedelta(seconds=lease_seconds),
+                    "updated_at": datetime.now(timezone.utc),
+                }
+            },
+        )
+        return result.modified_count == 1
 
     def save_research_task(self, task: ResearchTask) -> None:
         self.research_tasks.replace_one({"task_id": task.task_id}, task.model_dump(), upsert=True)
