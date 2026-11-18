@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Callable, Mapping
 from copy import deepcopy
 from datetime import datetime, timezone
+from decimal import Decimal
 from typing import Any
 
 from storage.database.base import Database
@@ -81,8 +82,17 @@ class ExperimentRunner:
             if any(set(item) != metric_names for item in repetition_metrics[1:]):
                 raise ValueError("Every repetition must return the same metric names.")
 
+            # Decimal(str(...)) avoids binary floating-point artifacts in
+            # reproducible aggregates (for example, 0.8 and 0.9 averaging to
+            # 0.8500000000000001 instead of 0.85).
             aggregate = {
-                name: sum(item[name] for item in repetition_metrics) / len(repetition_metrics)
+                name: float(
+                    sum(
+                        (Decimal(str(item[name])) for item in repetition_metrics),
+                        start=Decimal("0"),
+                    )
+                    / Decimal(len(repetition_metrics))
+                )
                 for name in sorted(metric_names)
             }
             evaluation = self._evaluate(experiment, aggregate)
