@@ -1,6 +1,5 @@
 import os
 import socket
-import time
 import uuid
 from datetime import datetime, timezone
 from threading import Event, Thread
@@ -170,7 +169,7 @@ class ResearchWorker:
         stop = stop_event or Event()
         while not stop.is_set():
             job = self.process_next()
-            if job is None:
+            if job is None or job.status == ResearchJobStatus.QUEUED:
                 stop.wait(max(0.1, poll_interval))
 
 
