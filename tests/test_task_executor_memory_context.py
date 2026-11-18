@@ -95,6 +95,9 @@ def test_executor_injects_prior_findings_into_task_context():
             "memory_type": "finding",
             "tags": ["rag", "chunking", "retrieval"],
             "metadata": {"source": "previous experiment"},
+            "confidence": 0.5,
+            "source_result_id": None,
+            "source_tool_id": None,
         }
     ]
 
