@@ -91,7 +91,7 @@ def test_hybrid_retrieval_combines_semantic_and_keyword_signals():
     results = ResearchMemoryRetriever(
         database,
         embedding_provider=provider,
-        semantic_weight=0.5,
+        semantic_weight=0.4,
         quality_weight=0.0,
     ).retrieve(query)
 
