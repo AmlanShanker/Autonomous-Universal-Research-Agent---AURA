@@ -155,12 +155,17 @@ def create_app(
         if len(resolved_tasks) != len(run.tasks) or not resolved_tasks:
             raise HTTPException(status_code=409, detail="Run task graph is missing or incomplete.")
         try:
+            requires_analysis = any(
+                not task.required_tools and task.dependencies
+                for task in resolved_tasks
+            )
             executor = TaskExecutor(
                 tasks=resolved_tasks,
                 database=db,
                 run_id=run_id,
                 tool_registry=registry_factory(db),
                 experiment_adapters=adapters,
+                llm_client=(llm_client or LLMClient()) if requires_analysis else None,
             )
             executor.run()
         except (ValueError, RuntimeError) as exc:
