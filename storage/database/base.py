@@ -29,6 +29,18 @@ class Database(ABC):
         pass
 
     @abstractmethod
+    def get_research_plan(self, question: str) -> ResearchPlan | None:
+        pass
+
+    @abstractmethod
+    def list_execution_results_for_run(self, run_id: str) -> list[ExecutionResult]:
+        pass
+
+    @abstractmethod
+    def list_experiment_results_for_run(self, run_id: str) -> list[ExperimentResult]:
+        pass
+
+    @abstractmethod
     def save_research_task(self, task: ResearchTask) -> None:
         pass
 
