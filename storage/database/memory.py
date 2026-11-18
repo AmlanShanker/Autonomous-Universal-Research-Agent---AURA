@@ -62,6 +62,10 @@ class InMemoryDatabase(Database):
         with self._job_lock:
             return next((job for job in self.research_jobs.values() if job.idempotency_key == key), None)
 
+    def list_research_jobs_for_run(self, run_id: str) -> list[ResearchJob]:
+        with self._job_lock:
+            return [job for job in self.research_jobs.values() if job.run_id == run_id]
+
     def claim_next_research_job(self, worker_id: str, lease_seconds: int = 3600) -> ResearchJob | None:
         now = datetime.now(timezone.utc)
         with self._job_lock:
