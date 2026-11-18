@@ -7,7 +7,10 @@ from fastapi import FastAPI, Header, HTTPException
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
-from agents.experiment_adapters import build_default_experiment_adapters
+from agents.experiment_adapters import (
+    build_default_experiment_adapters,
+    describe_default_experiment_adapters,
+)
 from agents.llm_client import LLMClient
 from agents.research_director import ResearchDirector
 from agents.research_reporter import ResearchReportBuilder
@@ -19,7 +22,7 @@ from storage.models.experiment import ExperimentResult
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.report import ResearchReport
 from storage.models.research import ResearchPlan, ResearchRun, ResearchTask
-from tools.registry import ToolRegistry
+from tools.registry import ToolRegistry, build_default_tool_registry
 
 
 load_dotenv()
@@ -60,7 +63,7 @@ def create_app(
     """Create an injectable AURA API application for production and tests."""
     db = database or _default_database()
     adapters = experiment_adapters if experiment_adapters is not None else build_default_experiment_adapters()
-    registry_factory = tool_registry_factory or (lambda store: ToolRegistry(database=store))
+    registry_factory = tool_registry_factory or build_default_tool_registry
     configured_director = director
 
     def get_director() -> ResearchDirector:
@@ -71,6 +74,8 @@ def create_app(
                 database=db,
                 llm_client=client,
                 available_experiment_adapters=list(adapters),
+                available_tools=registry_factory(db).list_tools(),
+                experiment_adapter_specs=describe_default_experiment_adapters(),
             )
         return configured_director
 
