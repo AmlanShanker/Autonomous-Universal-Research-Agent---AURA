@@ -32,15 +32,23 @@ class ResearchQualityEvaluator:
             warnings.append("Tasks without persisted execution or experiment evidence: " + ", ".join(missing))
 
         relevant_executions = [r for r in execution_results if r.run_id == run.run_id]
+        tool_task_ids = {task.task_id for task in tasks if task.required_tools}
+        successful_tool_tasks = {
+            r.task_id for r in relevant_executions
+            if r.status == "success" and r.task_id in tool_task_ids
+        }
+        execution_score = (
+            len(successful_tool_tasks) / len(tool_task_ids) if tool_task_ids else 1.0
+        )
         successful_executions = sum(r.status == "success" for r in relevant_executions)
-        execution_score = successful_executions / len(relevant_executions) if relevant_executions else (1.0 if not tasks else 0.0)
         if any(r.status != "success" for r in relevant_executions):
             warnings.append("One or more tool executions did not succeed.")
 
         relevant_experiments = [r for r in experiment_results if r.run_id == run.run_id]
         completed_experiments = [r for r in relevant_experiments if r.status == "completed"]
         reproducible = sum(
-            bool(r.metadata.get("random_seeds")) and len(r.metadata.get("random_seeds", [])) > 0
+            bool(r.metadata.get("random_seeds"))
+            and all(seed is not None for seed in r.metadata.get("random_seeds", []))
             for r in completed_experiments
         )
         reproducibility_score = reproducible / len(relevant_experiments) if relevant_experiments else 1.0
@@ -62,7 +70,7 @@ class ResearchQualityEvaluator:
             ),
             "execution_reliability": QualityDimension(
                 score=execution_score,
-                details=f"{successful_executions} of {len(relevant_executions)} tool executions succeeded.",
+                details=f"{len(successful_tool_tasks)} of {len(tool_task_ids)} tasks requiring tools have a successful execution.",
             ),
             "experiment_reproducibility": QualityDimension(
                 score=reproducibility_score,
