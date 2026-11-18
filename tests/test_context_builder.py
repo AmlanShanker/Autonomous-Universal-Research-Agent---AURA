@@ -105,5 +105,6 @@ def test_builder_returns_empty_context_without_dependencies():
     )
 
     assert result == {
-        "dependencies": []
+        "dependencies": [],
+        "prior_findings": [],
     }
