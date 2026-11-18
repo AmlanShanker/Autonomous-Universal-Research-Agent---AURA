@@ -4,6 +4,7 @@ from memory.research_memory import ResearchMemoryItem
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
+from storage.models.report import ResearchReport
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -14,6 +15,14 @@ from storage.models.research import (
 
 
 class Database(ABC):
+
+    @abstractmethod
+    def save_research_report(self, report: ResearchReport) -> None:
+        pass
+
+    @abstractmethod
+    def get_research_report(self, report_id: str) -> ResearchReport | None:
+        pass
 
     @abstractmethod
     def save_research_plan(self, plan: ResearchPlan) -> None:
