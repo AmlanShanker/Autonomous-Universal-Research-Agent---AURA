@@ -85,6 +85,7 @@ def test_hybrid_retrieval_combines_semantic_and_keyword_signals():
         "retrieval recall",
         "retrieval recall",
         embedding=[0.0, 1.0],
+        tags=["retrieval", "recall"],
     ))
 
     results = ResearchMemoryRetriever(
