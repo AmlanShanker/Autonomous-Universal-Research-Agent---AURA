@@ -2,6 +2,7 @@
 
 from agents.capability_gap_detector import CapabilityGapDetector
 from agents.context_builder import TaskContextBuilder
+from agents.experiment_runner import ExperimentRunner
 from agents.task_scheduler import TaskScheduler
 
 from memory.research_memory_writer import ResearchMemoryWriter
@@ -11,6 +12,7 @@ from memory.research_memory_retriever import ResearchMemoryRetriever
 from storage.database.base import Database
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
+from storage.models.experiment import ExperimentDefinition
 from storage.models.research import (
     ResearchRunStatus,
     ResearchTask,
@@ -62,6 +64,7 @@ class TaskExecutor:
         finding_extractor: ResearchFindingExtractor | None = None,
         memory_writer: ResearchMemoryWriter | None = None,
         memory_retriever: ResearchMemoryRetriever | None = None,
+        experiment_adapters: dict | None = None,
     ):
         self.tasks = {
             task.task_id: task
@@ -73,6 +76,10 @@ class TaskExecutor:
         self.finding_extractor = finding_extractor
         self.memory_writer = memory_writer
         self.memory_retriever = memory_retriever
+        self.experiment_runner = ExperimentRunner(
+            database=database,
+            adapters=experiment_adapters or {},
+        )
         self._prior_memory_cache: dict[str, list] = {}
 
         self.scheduler = TaskScheduler(
@@ -504,9 +511,11 @@ class TaskExecutor:
                 f"'{task.task_id}'."
             )
 
+            experiment_results = self._execute_task_experiments(task)
             return {
                 "status": "no_tools_required",
                 "task_id": task.task_id,
+                "experiments": experiment_results,
                 "research_context": (
                     self.build_task_context(task)
                 ),
@@ -747,10 +756,12 @@ class TaskExecutor:
                 execution_result
             )
 
+        experiment_results = self._execute_task_experiments(task)
         return {
             "status": "completed",
             "task_id": task.task_id,
             "tools": results,
+            "experiments": experiment_results,
             "implementations": (
                 self.selected_implementations.copy()
             ),
@@ -758,6 +769,42 @@ class TaskExecutor:
                 self.build_task_context(task)
             ),
         }
+
+    def _execute_task_experiments(self, task: ResearchTask) -> list[dict]:
+        """Run task-declared experiments only through injected trusted adapters."""
+        results = []
+        for spec in task.experiments:
+            definition = ExperimentDefinition(
+                experiment_id=str(uuid.uuid4()),
+                run_id=self.run_id,
+                task_id=task.task_id,
+                **spec.model_dump(),
+            )
+            result = self.experiment_runner.run(definition)
+            output = {
+                "experiment_id": result.experiment_id,
+                "hypothesis": spec.hypothesis,
+                "metrics": result.metrics,
+                "evaluation": result.evaluation,
+                "passed": result.passed,
+                "error": result.error,
+                "outputs": result.outputs,
+            }
+            metadata = {
+                **result.metadata,
+                "execution_type": "experiment",
+                "adapter_name": spec.adapter_name,
+            }
+            self.context.add_result(
+                result_id=result.result_id,
+                task_id=task.task_id,
+                tool_id=f"experiment:{spec.adapter_name}",
+                status=result.status,
+                output=output,
+                metadata=metadata,
+            )
+            results.append(result.model_dump(mode="json"))
+        return results
 
     def _process_execution_result(
         self,
