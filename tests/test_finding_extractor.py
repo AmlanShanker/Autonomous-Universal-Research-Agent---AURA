@@ -60,6 +60,7 @@ def test_extractor_returns_structured_findings():
         "Dense retrieval research includes a 2024 study."
     )
     assert findings[0]["memory_type"] == "finding"
+    assert findings[0]["confidence"] == 0.5
     assert findings[0]["tags"] == [
         "retrieval",
         "dense",
@@ -158,3 +159,54 @@ def test_extractor_rejects_empty_finding_content():
         )
     except ValueError as error:
         assert "non-empty string content" in str(error)
+
+def test_extractor_preserves_valid_confidence_score():
+    llm = FakeLLM(
+        """
+        {
+            "findings": [
+                {
+                    "content": "The source directly reports a recall improvement.",
+                    "memory_type": "finding",
+                    "tags": ["retrieval"],
+                    "metadata": {},
+                    "confidence": 0.85
+                }
+            ]
+        }
+        """
+    )
+
+    extractor = ResearchFindingExtractor(llm)
+    findings = extractor.extract(
+        research_question="Investigate retrieval performance.",
+        execution_result=create_execution_result(),
+    )
+
+    assert findings[0]["confidence"] == 0.85
+
+
+def test_extractor_rejects_out_of_range_confidence():
+    llm = FakeLLM(
+        """
+        {
+            "findings": [
+                {
+                    "content": "Unsupported confidence.",
+                    "confidence": 1.2
+                }
+            ]
+        }
+        """
+    )
+
+    extractor = ResearchFindingExtractor(llm)
+
+    try:
+        extractor.extract(
+            research_question="Investigate retrieval performance.",
+            execution_result=create_execution_result(),
+        )
+        assert False, "Expected invalid confidence to raise ValueError."
+    except ValueError as error:
+        assert "confidence" in str(error)
