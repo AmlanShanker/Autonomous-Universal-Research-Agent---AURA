@@ -1,11 +1,9 @@
 from fastapi.testclient import TestClient
 
-from agents.task_executor import TaskExecutor
 from api.app import create_app
 from storage.database.memory import InMemoryDatabase
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.research import ResearchPlan, ResearchRun, ResearchRunStatus, ResearchTask
-from tools.registry import ToolRegistry
 from workers.research_worker import ResearchWorker
 
 
@@ -143,3 +141,23 @@ def test_job_retry_endpoint_requeues_failed_job_within_bounded_budget():
     assert response.status_code == 200
     assert response.json()["status"] == "queued"
     assert database.get_research_job(job.job_id).attempts == 1
+
+
+def test_enqueue_rejects_blank_idempotency_key():
+    client, _ = build_client()
+    run_id = create_run(client)
+
+    response = client.post(
+        f"/research/runs/{run_id}/jobs",
+        headers={"Idempotency-Key": "   "},
+    )
+
+    assert response.status_code == 422
+
+
+def test_cancel_unknown_job_returns_not_found():
+    client, _ = build_client()
+
+    response = client.post("/research/jobs/missing/cancel")
+
+    assert response.status_code == 404
