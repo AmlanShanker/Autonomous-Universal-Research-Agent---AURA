@@ -46,6 +46,27 @@ class MongoDatabase(Database):
     def save_research_plan(self, plan: ResearchPlan) -> None:
         self.research_plans.replace_one({"question": plan.question}, plan.model_dump(), upsert=True)
 
+    def get_research_plan(self, question: str) -> ResearchPlan | None:
+        document = self.research_plans.find_one({"question": question})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ResearchPlan.model_validate(document)
+
+    def list_execution_results_for_run(self, run_id: str) -> list[ExecutionResult]:
+        results = []
+        for document in self.execution_results.find({"run_id": run_id}):
+            document.pop("_id", None)
+            results.append(ExecutionResult.model_validate(document))
+        return results
+
+    def list_experiment_results_for_run(self, run_id: str) -> list[ExperimentResult]:
+        results = []
+        for document in self.experiment_results.find({"run_id": run_id}):
+            document.pop("_id", None)
+            results.append(ExperimentResult.model_validate(document))
+        return results
+
     def save_research_task(self, task: ResearchTask) -> None:
         self.research_tasks.replace_one({"task_id": task.task_id}, task.model_dump(), upsert=True)
 
