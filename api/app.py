@@ -38,10 +38,12 @@ class ResearchRunCreated(BaseModel):
 def _default_database() -> Database:
     backend = os.getenv("AURA_DATABASE_BACKEND", "memory").strip().lower()
     if backend == "mongodb":
-        uri = os.getenv("MONGODB_URI")
+        uri = os.getenv("MONGO_URL") or os.getenv("MONGODB_URI")
         database_name = os.getenv("MONGODB_DATABASE", "aura")
         if not uri:
-            raise RuntimeError("MONGODB_URI is required when AURA_DATABASE_BACKEND=mongodb.")
+            raise RuntimeError(
+                "MONGO_URL or MONGODB_URI is required when AURA_DATABASE_BACKEND=mongodb."
+            )
         return MongoDatabase(uri, database_name)
     if backend != "memory":
         raise RuntimeError("AURA_DATABASE_BACKEND must be 'memory' or 'mongodb'.")
