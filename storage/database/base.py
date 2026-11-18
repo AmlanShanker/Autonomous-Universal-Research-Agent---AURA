@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 from memory.research_memory import ResearchMemoryItem
+from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
 from storage.models.research import (
@@ -36,6 +37,26 @@ class Database(ABC):
 
     @abstractmethod
     def save_execution_result(self, result: ExecutionResult) -> None:
+        pass
+
+    @abstractmethod
+    def save_experiment(self, experiment: ExperimentDefinition) -> None:
+        pass
+
+    @abstractmethod
+    def get_experiment(self, experiment_id: str) -> ExperimentDefinition | None:
+        pass
+
+    @abstractmethod
+    def save_experiment_result(self, result: ExperimentResult) -> None:
+        pass
+
+    @abstractmethod
+    def get_experiment_result(self, result_id: str) -> ExperimentResult | None:
+        pass
+
+    @abstractmethod
+    def list_experiments_for_run(self, run_id: str) -> list[ExperimentDefinition]:
         pass
 
     @abstractmethod
@@ -81,13 +102,9 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    def list_research_memory_for_run(
-        self, run_id: str
-    ) -> list[ResearchMemoryItem]:
+    def list_research_memory_for_run(self, run_id: str) -> list[ResearchMemoryItem]:
         pass
 
     @abstractmethod
-    def search_research_memory(
-        self, query: str
-    ) -> list[ResearchMemoryItem]:
+    def search_research_memory(self, query: str) -> list[ResearchMemoryItem]:
         pass
