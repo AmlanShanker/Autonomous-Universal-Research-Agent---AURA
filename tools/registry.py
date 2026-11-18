@@ -698,3 +698,38 @@ class ToolRegistry:
         return list(
             self.implementations.keys()
         )
+
+
+
+def build_default_tool_registry(database: Database) -> ToolRegistry:
+    """
+    Build the application's trusted registry and provision metadata for
+    its application-owned built-in tools.
+
+    ToolRegistry itself deliberately does not invent definitions: callers
+    that need a production-ready registry use this application bootstrap.
+    Only the already registered built-in ResearchTool instances receive
+    definitions; generated tool specifications remain non-executable.
+    """
+    registry = ToolRegistry(database=database)
+
+    for tool_name in registry.list_tools():
+        if registry.get_definition(tool_name) is not None:
+            continue
+
+        tool = registry.get(tool_name)
+        if tool is None:
+            continue
+
+        definition = ToolDefinition(
+            tool_id=tool.name,
+            name=tool.name,
+            capability=tool.name,
+            description=tool.description,
+            purpose="Application-owned trusted built-in research tool.",
+            status="draft",
+        )
+        registry.register_definition(definition)
+        database.save_tool(definition)
+
+    return registry
