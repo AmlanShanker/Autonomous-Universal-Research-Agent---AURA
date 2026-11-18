@@ -908,6 +908,40 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 raise ValueError("LLM analysis response has an invalid field set.")
             if not isinstance(analysis["findings"], list) or not isinstance(analysis["evidence"], list):
                 raise ValueError("LLM analysis findings and evidence must be arrays.")
+            if any(not isinstance(item, str) or not item.strip() for item in analysis["findings"]):
+                raise ValueError("LLM analysis findings must be non-empty strings.")
+            if not isinstance(analysis["artifacts"], dict):
+                raise ValueError("LLM analysis artifacts must be an object.")
+
+            allowed_result_ids = set()
+
+            def collect_result_ids(value):
+                if isinstance(value, dict):
+                    for key, item in value.items():
+                        if key in {"result_id", "source_result_id"} and isinstance(item, str):
+                            allowed_result_ids.add(item)
+                        elif key == "dependency_result_ids" and isinstance(item, list):
+                            allowed_result_ids.update(
+                                entry for entry in item if isinstance(entry, str)
+                            )
+                        collect_result_ids(item)
+                elif isinstance(value, list):
+                    for item in value:
+                        collect_result_ids(item)
+
+            collect_result_ids(dependency_items)
+            collect_result_ids(experiment_results)
+            for evidence_item in analysis["evidence"]:
+                if not isinstance(evidence_item, dict):
+                    raise ValueError("Each evidence entry must be an object.")
+                source_id = evidence_item.get("source_result_id")
+                claim = evidence_item.get("claim")
+                if source_id not in allowed_result_ids or not isinstance(claim, str) or not claim.strip():
+                    raise ValueError(
+                        "Every evidence claim must reference a supplied dependency result ID."
+                    )
+            if analysis["findings"] and not analysis["evidence"]:
+                raise ValueError("Findings require at least one traceable evidence reference.")
             analysis_status = "completed"
 
         result_id = str(uuid.uuid4())
