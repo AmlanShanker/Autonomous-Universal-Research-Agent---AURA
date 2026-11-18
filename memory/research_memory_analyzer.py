@@ -30,6 +30,8 @@ class ResearchMemoryAnalyzer:
     """
 
     _NEGATION = {"not", "no", "never", "without", "n't"}
+    _IGNORED_TOKENS = {"do", "does", "did"}
+    _TOKEN_NORMALIZATION = {"improves": "improve"}
     _POSITIVE = {
         "increase", "increases", "increased", "improve", "improves",
         "improved", "boost", "boosts", "higher", "high", "positive",
@@ -123,9 +125,14 @@ class ResearchMemoryAnalyzer:
             potential_conflicts=conflicts,
         )
 
-    @staticmethod
-    def _tokens(value: str) -> set[str]:
-        return set(re.findall(r"[a-z0-9]+", value.lower()))
+    @classmethod
+    def _tokens(cls, value: str) -> set[str]:
+        tokens = re.findall(r"[a-z0-9]+", value.lower())
+        return {
+            cls._TOKEN_NORMALIZATION.get(token, token)
+            for token in tokens
+            if token not in cls._IGNORED_TOKENS
+        }
 
     @staticmethod
     def _jaccard(left: set[str], right: set[str]) -> float:
