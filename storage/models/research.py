@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel, Field
 
+from storage.models.experiment import ExperimentSpec
+
 
 class ResearchPlan(BaseModel):
     question: str = Field(
@@ -54,6 +56,11 @@ class ResearchTask(BaseModel):
             "Structured inputs supplied to each tool required by the task. "
             "Keys are tool names."
         ),
+    )
+
+    experiments: list[ExperimentSpec] = Field(
+        default_factory=list,
+        description="Declarative experiments to execute through trusted registered adapters.",
     )
 
     status: str = "pending"
