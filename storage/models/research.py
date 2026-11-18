@@ -77,6 +77,7 @@ class ResearchRunStatus(str, Enum):
     BLOCKED = "blocked"
     FAILED = "failed"
     COMPLETED = "completed"
+    CANCELLED = "cancelled"
 
 
 class ResearchRun(BaseModel):
@@ -139,12 +140,14 @@ class ResearchRun(BaseModel):
                 ResearchRunStatus.BLOCKED,
                 ResearchRunStatus.FAILED,
                 ResearchRunStatus.COMPLETED,
+                ResearchRunStatus.CANCELLED,
             },
             ResearchRunStatus.BLOCKED: {
                 ResearchRunStatus.RUNNING,
                 ResearchRunStatus.FAILED,
             },
             ResearchRunStatus.FAILED: set(),
+            ResearchRunStatus.CANCELLED: set(),
             ResearchRunStatus.COMPLETED: set(),
         }
 
