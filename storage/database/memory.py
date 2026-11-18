@@ -4,6 +4,7 @@ from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
+from storage.models.report import ResearchReport
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -24,6 +25,13 @@ class InMemoryDatabase(Database):
         self.experiments: dict[str, ExperimentDefinition] = {}
         self.experiment_results: dict[str, ExperimentResult] = {}
         self.research_memory: dict[str, ResearchMemoryItem] = {}
+        self.research_reports: dict[str, ResearchReport] = {}
+
+    def save_research_report(self, report: ResearchReport) -> None:
+        self.research_reports[report.report_id] = report
+
+    def get_research_report(self, report_id: str) -> ResearchReport | None:
+        return self.research_reports.get(report_id)
 
     def save_research_plan(self, plan: ResearchPlan) -> None:
         self.research_plans[plan.question] = plan
