@@ -6,6 +6,7 @@ from agents.task_scheduler import TaskScheduler
 
 from memory.research_memory_writer import ResearchMemoryWriter
 from memory.finding_extractor import ResearchFindingExtractor
+from memory.research_memory_retriever import ResearchMemoryRetriever
 
 from storage.database.base import Database
 from storage.models.context import ResearchContext
@@ -56,6 +57,7 @@ class TaskExecutor:
         tool_registry: ToolRegistry,
         finding_extractor: ResearchFindingExtractor | None = None,
         memory_writer: ResearchMemoryWriter | None = None,
+        memory_retriever: ResearchMemoryRetriever | None = None,
     ):
         self.tasks = {
             task.task_id: task
@@ -66,6 +68,8 @@ class TaskExecutor:
         self.tool_registry = tool_registry
         self.finding_extractor = finding_extractor
         self.memory_writer = memory_writer
+        self.memory_retriever = memory_retriever
+        self._prior_memory_cache: dict[str, list] = {}
 
         self.scheduler = TaskScheduler(
             list(self.tasks.values())
@@ -158,10 +162,53 @@ class TaskExecutor:
         dependencies is included.
         """
 
+        prior_findings = self._retrieve_prior_findings(task)
+
         return self.context_builder.build(
             task=task,
             context_items=self.context.items,
+            prior_findings=prior_findings,
         )
+
+    def _retrieve_prior_findings(
+        self,
+        task: ResearchTask,
+    ) -> list:
+        """
+        Retrieve relevant findings from earlier runs for this task.
+
+        Findings from the current run are excluded so that current
+        execution evidence remains represented only by dependencies.
+        Results are cached per task because tool-input construction
+        may request the same context more than once.
+        """
+
+        if self.memory_retriever is None:
+            return []
+
+        if task.task_id in self._prior_memory_cache:
+            return self._prior_memory_cache[task.task_id]
+
+        run = self.database.get_research_run(self.run_id)
+
+        query_parts = []
+
+        if run is not None and run.research_question:
+            query_parts.append(run.research_question)
+
+        query_parts.append(task.description)
+
+        query = " ".join(query_parts)
+
+        findings = self.memory_retriever.retrieve(
+            query,
+            limit=5,
+            exclude_run_id=self.run_id,
+        )
+
+        self._prior_memory_cache[task.task_id] = findings
+
+        return findings
 
     def _build_tool_inputs(
         self,
