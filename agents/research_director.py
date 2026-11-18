@@ -147,6 +147,12 @@ Return ONLY a JSON object in this structure:
       "task_type": "literature_search",
       "dependencies": [],
       "required_tools": ["literature_search"],
+      "tool_inputs": {
+        "literature_search": {
+          "query": "research topic",
+          "max_results": 5
+        }
+      },
       "experiments": [
         {{
           "hypothesis": "The candidate method improves recall.",
@@ -187,6 +193,7 @@ Rules:
 - Never invent executable tool names, executable code, imports, or dependencies.
 - If no suitable trusted adapter is available, use an empty experiments array.
 - If a task cannot be performed with available executable tools or a trusted adapter, do not pretend it can; omit that task or describe the limitation in a tool-free analysis task.
+- Tool-free tasks may only analyze supplied plans, findings, or execution evidence; they must not claim to have performed external research, implemented software, or generated datasets.
 - Experiment success criteria must use numeric metrics and one of: gt, gte, lt, lte, eq.
 - Tasks must form a directed acyclic graph.
 - Every dependency must reference another task_id.
