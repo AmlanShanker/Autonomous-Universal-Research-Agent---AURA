@@ -105,3 +105,30 @@ def test_research_director_accepts_registered_tools_and_trusted_adapters_separat
 
     assert tasks[0].required_tools == []
     assert tasks[0].experiments[0].adapter_name == "retrieval_benchmark"
+
+
+
+def test_research_director_rejects_registered_tool_without_required_inputs():
+    director = ResearchDirector(
+        database=InMemoryDatabase(),
+        llm_client=UnusedLLM(),
+        available_tools=["literature_search"],
+        available_tool_specs={
+            "literature_search": {
+                "required_inputs": {"query": "non-empty string"},
+            },
+        },
+    )
+    response = json.dumps({
+        "tasks": [{
+            "task_id": "task_001",
+            "description": "Search relevant papers.",
+            "task_type": "literature_review",
+            "dependencies": [],
+            "required_tools": ["literature_search"],
+            "tool_inputs": {},
+        }]
+    })
+
+    with pytest.raises(ValueError, match="missing required input"):
+        director._parse_and_validate_tasks(response)
