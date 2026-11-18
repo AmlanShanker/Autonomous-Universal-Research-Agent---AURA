@@ -14,7 +14,7 @@ __pycache__/
 *.log
 
 # Generated data
-storage/*
+storage/downloads/
 experiments/*/results/
 
 # OS
