@@ -45,6 +45,11 @@ class ResearchWorker:
             self._finish_failed(job, "Research run was not found.")
             return
 
+        if run.status == ResearchRunStatus.FAILED:
+            run.status = ResearchRunStatus.PLANNED
+            run.failed_tasks = []
+            self.database.save_research_run(run)
+
         tasks = [self.database.get_research_task(task_id) for task_id in run.tasks]
         resolved_tasks = [task for task in tasks if task is not None]
         if not resolved_tasks or len(resolved_tasks) != len(run.tasks):
@@ -54,7 +59,7 @@ class ResearchWorker:
         # A worker may have died after persisting a task as running. Re-queue
         # that task for at-least-once recovery; completed tasks remain untouched.
         for task in resolved_tasks:
-            if task.status == "running":
+            if task.status in {"running", "failed", "blocked"}:
                 task.status = "pending"
                 self.database.save_research_task(task)
 
