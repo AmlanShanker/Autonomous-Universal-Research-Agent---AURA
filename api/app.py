@@ -157,7 +157,9 @@ def create_app(
             raise HTTPException(status_code=409, detail="Run task graph is missing or incomplete.")
         try:
             requires_analysis = any(
-                not task.required_tools and task.dependencies
+                not task.required_tools
+                and task.dependencies
+                and task.task_type.strip().lower() != "test"
                 for task in resolved_tasks
             )
             executor = TaskExecutor(
