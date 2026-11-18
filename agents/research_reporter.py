@@ -1,6 +1,7 @@
 import uuid
 
 from agents.research_quality import ResearchQualityEvaluator
+from storage.database.base import Database
 from storage.models.experiment import ExperimentResult
 from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
@@ -12,6 +13,22 @@ class ResearchReportBuilder:
 
     def __init__(self, quality_evaluator: ResearchQualityEvaluator | None = None):
         self.quality_evaluator = quality_evaluator or ResearchQualityEvaluator()
+
+    def build_and_save(
+        self,
+        database: Database,
+        run: ResearchRun,
+        plan: ResearchPlan,
+        tasks: list[ResearchTask],
+        execution_results: list[ExecutionResult],
+        experiment_results: list[ExperimentResult],
+    ) -> ResearchReport:
+        """Build a report and persist it through the database contract."""
+        report = self.build(
+            run, plan, tasks, execution_results, experiment_results
+        )
+        database.save_research_report(report)
+        return report
 
     def build(
         self,
