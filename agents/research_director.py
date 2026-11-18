@@ -27,6 +27,7 @@ class ResearchDirector:
         available_experiment_adapters: list[str] | None = None,
         available_tools: list[str] | None = None,
         experiment_adapter_specs: dict | None = None,
+        available_tool_specs: dict | None = None,
     ):
         if max_generation_attempts < 1:
             raise ValueError("max_generation_attempts must be at least 1.")
@@ -44,6 +45,7 @@ class ResearchDirector:
             else None
         )
         self.experiment_adapter_specs = experiment_adapter_specs or {}
+        self.available_tool_specs = available_tool_specs or {}
 
     def create_plan(self, question: str) -> ResearchPlan:
         """Generate, validate, and persist a research plan."""
@@ -168,6 +170,9 @@ Available trusted experiment adapter names:
 Available executable tool names:
 {json.dumps(self.available_tools if self.available_tools is not None else [])}
 
+Available executable tool input contracts:
+{json.dumps(self.available_tool_specs, indent=2)}
+
 Trusted experiment adapter input/output contracts:
 {json.dumps(self.experiment_adapter_specs, indent=2)}
 
@@ -178,6 +183,7 @@ Rules:
 - Use only the exact parameters documented in that adapter's contract; never invent parameters or metrics.
 - Never put an experiment adapter name in required_tools. Adapters are invoked through experiments only.
 - required_tools may contain only exact names from the available executable tool list above.
+- For every required tool, provide all required inputs under tool_inputs[tool_name] using the documented input contract.
 - Never invent executable tool names, executable code, imports, or dependencies.
 - If no suitable trusted adapter is available, use an empty experiments array.
 - If a task cannot be performed with available executable tools or a trusted adapter, do not pretend it can; omit that task or describe the limitation in a tool-free analysis task.
@@ -316,6 +322,16 @@ Rules:
                     raise ValueError(
                         f"Task {task.task_id} references unavailable executable tool(s): "
                         + ", ".join(unavailable_tools)
+                    )
+            for tool_name in task.required_tools:
+                tool_spec = self.available_tool_specs.get(tool_name, {})
+                required_inputs = set(tool_spec.get("required_inputs", {}))
+                supplied_inputs = task.tool_inputs.get(tool_name, {})
+                missing_inputs = sorted(required_inputs - set(supplied_inputs))
+                if missing_inputs:
+                    raise ValueError(
+                        f"Task {task.task_id} is missing required input(s) for "
+                        f"'{tool_name}': " + ", ".join(missing_inputs)
                     )
             for experiment in task.experiments:
                 if experiment.adapter_name not in self.available_experiment_adapters:
