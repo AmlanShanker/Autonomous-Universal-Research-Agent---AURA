@@ -71,7 +71,14 @@ class InMemoryDatabase(Database):
         with self._job_lock:
             candidates = sorted(self.research_jobs.values(), key=lambda job: job.created_at)
             for job in candidates:
-                expired = job.status == ResearchJobStatus.RUNNING and job.lease_expires_at is not None and job.lease_expires_at <= now
+                expired = job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED} and job.lease_expires_at is not None and job.lease_expires_at <= now
+                if job.status == ResearchJobStatus.CANCEL_REQUESTED and expired:
+                    job.status = ResearchJobStatus.CANCELLED
+                    job.finished_at = now
+                    job.worker_id = None
+                    job.lease_expires_at = None
+                    job.touch()
+                    continue
                 if job.status != ResearchJobStatus.QUEUED and not expired:
                     continue
                 if job.attempts >= job.max_attempts:
