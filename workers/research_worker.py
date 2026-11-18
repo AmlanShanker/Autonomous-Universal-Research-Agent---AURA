@@ -188,9 +188,9 @@ def build_worker_from_environment() -> ResearchWorker:
     backend = os.getenv("AURA_DATABASE_BACKEND", "mongodb").strip().lower()
     if backend != "mongodb":
         raise RuntimeError("The standalone worker requires AURA_DATABASE_BACKEND=mongodb.")
-    uri = os.getenv("MONGODB_URI")
+    uri = os.getenv("MONGO_URL") or os.getenv("MONGODB_URI")
     if not uri:
-        raise RuntimeError("MONGODB_URI is required by the standalone worker.")
+        raise RuntimeError("MONGO_URL or MONGODB_URI is required by the standalone worker.")
     database_name = os.getenv("MONGODB_DATABASE", "aura")
     return ResearchWorker(MongoDatabase(uri, database_name))
 
