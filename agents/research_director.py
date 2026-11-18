@@ -147,12 +147,7 @@ Return ONLY a JSON object in this structure:
       "task_type": "literature_search",
       "dependencies": [],
       "required_tools": ["literature_search"],
-      "tool_inputs": {
-        "literature_search": {
-          "query": "research topic",
-          "max_results": 5
-        }
-      },
+      "tool_inputs": {{"literature_search": {{"query": "research topic", "max_results": 5}}}},
       "experiments": [
         {{
           "hypothesis": "The candidate method improves recall.",
