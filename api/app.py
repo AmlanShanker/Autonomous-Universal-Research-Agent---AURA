@@ -234,8 +234,10 @@ def create_app(
             raise HTTPException(status_code=404, detail="Research job not found.")
         if job.status != ResearchJobStatus.FAILED:
             raise HTTPException(status_code=409, detail="Only failed jobs can be retried.")
+        if job.max_attempts >= 5:
+            raise HTTPException(status_code=409, detail="The maximum manual retry budget has been reached.")
         if job.attempts >= job.max_attempts:
-            raise HTTPException(status_code=409, detail="The job has exhausted its configured attempt limit.")
+            job.max_attempts += 1
         run = db.get_research_run(job.run_id)
         if run is None:
             raise HTTPException(status_code=404, detail="Research run not found.")
