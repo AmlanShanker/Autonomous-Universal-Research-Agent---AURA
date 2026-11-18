@@ -126,5 +126,5 @@ def test_quality_assessment_marks_reproducibility_unassessed_without_experiments
 
     assert assessment.dimensions["experiment_reproducibility"].score == 0.0
     assert "Not assessed" in assessment.dimensions["experiment_reproducibility"].details
-    assert assessment.overall_score == 1.0
+    assert assessment.overall_score == (0.5 + 1.0 + 1.0) / 3
     assert any("no experiments were executed" in warning for warning in assessment.warnings)
