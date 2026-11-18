@@ -55,6 +55,9 @@ The interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 - `GET /research/jobs/{job_id}` — inspect job state and task progress.
 - `POST /research/jobs/{job_id}/cancel` — cancel a queued job or request cooperative cancellation of a running job.
 - `POST /research/jobs/{job_id}/retry` — requeue a failed job within its bounded retry budget.
+- `GET /research/runs/{run_id}/experiments` — retrieve experiment results.
+- `POST /research/runs/{run_id}/report` — build and persist a research report.
+- `GET /research/reports/{report_id}` — retrieve a saved report.
 
 ### Background worker
 
@@ -84,8 +87,3 @@ uv run python -m workers.research_worker
 The standalone worker requires MongoDB because an in-memory database cannot be shared between separate processes. In-memory job storage remains available for unit tests and embedded development. Workers use leases for crash recovery, bounded attempts, and cooperative cancellation between tasks. Since a worker may be restarted after a crash, external tool operations should be designed to tolerate at-least-once execution.
 
 Only application-registered trusted tools and experiment adapters execute. LLM-generated source code is never executed. Cancellation cannot interrupt an external tool call already in progress.
-- `GET /research/runs/{run_id}/experiments` — retrieve experiment results.
-- `POST /research/runs/{run_id}/report` — build and persist a research report.
-- `GET /research/reports/{report_id}` — retrieve a saved report.
-
-Run execution is synchronous in this phase. Long-running/background worker execution and job queue infrastructure are intentionally reserved for Phase 7.
