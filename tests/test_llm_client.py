@@ -260,7 +260,7 @@ def test_generate_falls_back_after_primary_connection_failure(monkeypatch):
 
     primary = MagicMock()
     primary.chat.completions.create.side_effect = APIConnectionError(
-        "primary unavailable", request=MagicMock()
+        message="primary unavailable", request=MagicMock()
     )
     fallback = MagicMock()
     fallback.chat.completions.create.return_value = SimpleNamespace(
@@ -315,7 +315,7 @@ def test_generate_preserves_primary_error_when_fallback_is_disabled(monkeypatch)
     monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
 
     primary = MagicMock()
-    error = APIConnectionError("primary unavailable", request=MagicMock())
+    error = APIConnectionError(message="primary unavailable", request=MagicMock())
     primary.chat.completions.create.side_effect = error
     openai_factory = MagicMock(return_value=primary)
     monkeypatch.setattr("agents.llm_client.OpenAI", openai_factory)
@@ -338,11 +338,11 @@ def test_fallback_failure_is_not_retried_again(monkeypatch):
 
     primary = MagicMock()
     primary.chat.completions.create.side_effect = APIConnectionError(
-        "primary unavailable", request=MagicMock()
+        message="primary unavailable", request=MagicMock()
     )
     fallback = MagicMock()
     fallback_error = APIConnectionError(
-        "fallback unavailable", request=MagicMock()
+        message="fallback unavailable", request=MagicMock()
     )
     fallback.chat.completions.create.side_effect = fallback_error
     openai_factory = MagicMock(side_effect=[primary, fallback])
