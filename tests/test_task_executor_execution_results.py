@@ -133,6 +133,9 @@ def test_successful_tool_execution_persists_execution_result(
         result.metadata["execution_type"]
         == "tool"
     )
+    assert result.metadata["sandbox_policy"] == "trusted_builtin_v1"
+    assert result.metadata["input_bytes"] > 0
+    assert result.metadata["output_bytes"] > 0
 
 
 def test_failed_tool_execution_persists_failed_result(
