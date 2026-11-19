@@ -481,11 +481,14 @@ def test_current_lease_owner_can_renew_and_persist_fenced_updates():
     assert database.renew_research_job_lease(
         claimed.job_id, "current-worker", claimed.lease_token, 60
     )
+    renewed_expiry = database.get_research_job(claimed.job_id).lease_expires_at
     claimed.progress = 25.0
     assert database.save_research_job_if_lease_owner(
         claimed, "current-worker", claimed.lease_token
     )
-    assert database.get_research_job(claimed.job_id).progress == 25.0
+    persisted = database.get_research_job(claimed.job_id)
+    assert persisted.progress == 25.0
+    assert persisted.lease_expires_at == renewed_expiry
 
 
 def test_task_executor_refuses_to_start_when_worker_lease_is_lost():
