@@ -62,6 +62,7 @@ The interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 - `POST /research/runs/{run_id}/execute` — execute the task graph synchronously (development/compatibility path).
 - `POST /research/runs/{run_id}/jobs` — enqueue a durable background execution job (optional `Idempotency-Key` header).
 - `GET /research/jobs/{job_id}` — inspect job state and task progress.
+- `GET /research/jobs/{job_id}/attempts` — inspect each worker claim, including successful, failed, cancelled, and lease-expired attempts.
 - `POST /research/jobs/{job_id}/cancel` — cancel a queued job or request cooperative cancellation of a running job.
 - `POST /research/jobs/{job_id}/retry` — requeue a failed job within its bounded retry budget.
 - `GET /research/runs/{run_id}/experiments` — retrieve experiment results.
@@ -93,6 +94,6 @@ $env:AURA_DATABASE_BACKEND = "mongodb"
 uv run python -m workers.research_worker
 ```
 
-The standalone worker requires MongoDB because an in-memory database cannot be shared between separate processes. In-memory job storage remains available for unit tests and embedded development. Workers use leases for crash recovery, bounded attempts, and cooperative cancellation between tasks. Since a worker may be restarted after a crash, external tool operations should be designed to tolerate at-least-once execution.
+The standalone worker requires MongoDB because an in-memory database cannot be shared between separate processes. In-memory job storage remains available for unit tests and embedded development. Workers use leases for crash recovery, bounded attempts, and cooperative cancellation between tasks. Each worker claim is recorded as a durable job-attempt entry with its worker ID, timestamps, outcome, and a bounded error summary; expired attempts are marked when a replacement worker successfully claims the job. Since a worker may be restarted after a crash, external tool operations should be designed to tolerate at-least-once execution.
 
 Only application-registered trusted tools and experiment adapters execute. LLM-generated source code is never executed. Cancellation cannot interrupt an external tool call already in progress.
