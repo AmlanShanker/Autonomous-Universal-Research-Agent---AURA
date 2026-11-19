@@ -299,7 +299,7 @@ class InMemoryDatabase(Database):
 
     def save_experiment_parameter_snapshot(self, snapshot: ExperimentParameterSnapshot) -> None:
         existing = self.experiment_parameter_snapshots.get(snapshot.snapshot_id)
-        if existing is not None and existing != snapshot:
+        if existing is not None and existing.model_dump(exclude={"created_at"}) != snapshot.model_dump(exclude={"created_at"}):
             raise ValueError("Experiment parameter snapshots are immutable.")
         self.experiment_parameter_snapshots[snapshot.snapshot_id] = snapshot.model_copy(deep=True)
 
@@ -309,7 +309,7 @@ class InMemoryDatabase(Database):
 
     def save_experiment_artifact(self, artifact: ExperimentArtifact) -> None:
         existing = self.experiment_artifacts.get(artifact.artifact_id)
-        if existing is not None and existing != artifact:
+        if existing is not None and existing.model_dump(exclude={"created_at"}) != artifact.model_dump(exclude={"created_at"}):
             raise ValueError("Experiment artifacts are immutable.")
         self.experiment_artifacts[artifact.artifact_id] = artifact.model_copy(deep=True)
 
