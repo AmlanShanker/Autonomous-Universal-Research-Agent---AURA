@@ -8,6 +8,7 @@ from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
+from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -32,6 +33,8 @@ class MongoDatabase(Database):
         self.research_memory = self.db["research_memory"]
         self.research_reports = self.db["research_reports"]
         self.research_jobs = self.db["research_jobs"]
+        self.research_job_attempts = self.db["research_job_attempts"]
+        self.research_job_attempts.create_index([("job_id", 1), ("attempt_number", 1)], unique=True)
         self.research_jobs.create_index(
             "idempotency_key",
             unique=True,
@@ -182,6 +185,18 @@ class MongoDatabase(Database):
             },
         )
         return result.modified_count == 1
+
+    def save_research_job_attempt(self, attempt: ResearchJobAttempt) -> None:
+        self.research_job_attempts.replace_one(
+            {"attempt_id": attempt.attempt_id}, attempt.model_dump(mode="json"), upsert=True
+        )
+
+    def list_research_job_attempts(self, job_id: str) -> list[ResearchJobAttempt]:
+        attempts = []
+        for document in self.research_job_attempts.find({"job_id": job_id}).sort("attempt_number", 1):
+            document.pop("_id", None)
+            attempts.append(ResearchJobAttempt.model_validate(document))
+        return attempts
 
     def save_research_task(self, task: ResearchTask) -> None:
         self.research_tasks.replace_one({"task_id": task.task_id}, task.model_dump(), upsert=True)
