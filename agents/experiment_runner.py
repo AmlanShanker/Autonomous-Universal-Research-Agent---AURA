@@ -34,6 +34,13 @@ class ExperimentRunner:
         """Persist a specification, execute bounded repetitions, and evaluate metrics."""
         started_at = datetime.now(timezone.utc)
         self.database.save_experiment(experiment)
+        stable_result_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"aura:experiment-result:{experiment.experiment_id}",
+        ))
+        existing_result = self.database.get_experiment_result(stable_result_id)
+        if existing_result is not None and existing_result.status == "completed":
+            return existing_result
         adapter = self.adapters.get(experiment.adapter_name)
 
         if adapter is None:
@@ -98,7 +105,7 @@ class ExperimentRunner:
             passed = all(evaluation.values())
 
             result = ExperimentResult(
-                result_id=str(uuid.uuid4()),
+                result_id=stable_result_id,
                 experiment_id=experiment.experiment_id,
                 run_id=experiment.run_id,
                 task_id=experiment.task_id,
@@ -152,7 +159,7 @@ class ExperimentRunner:
         error: str,
     ) -> ExperimentResult:
         result = ExperimentResult(
-            result_id=str(uuid.uuid4()),
+            result_id=str(uuid.uuid5(uuid.NAMESPACE_URL, f"aura:experiment-result:{experiment.experiment_id}")),
             experiment_id=experiment.experiment_id,
             run_id=experiment.run_id,
             task_id=experiment.task_id,
