@@ -5,7 +5,9 @@ from pymongo import MongoClient, ReturnDocument
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
-from storage.models.experiment import (\n    ExperimentArtifact, ExperimentDefinition, ExperimentParameterSnapshot, ExperimentResult,\n)
+from storage.models.experiment import (
+    ExperimentArtifact, ExperimentDefinition, ExperimentParameterSnapshot, ExperimentResult,
+)
 from storage.models.execution import ExecutionResult
 from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
@@ -33,14 +35,21 @@ class MongoDatabase(Database):
         self.tool_implementations = self.db["tool_implementations"]
         self.execution_results = self.db["execution_results"]
         self.experiments = self.db["experiments"]
-        self.experiment_results = self.db["experiment_results"]\n        self.experiment_parameter_snapshots = self.db["experiment_parameter_snapshots"]\n        self.experiment_artifacts = self.db["experiment_artifacts"]
+        self.experiment_results = self.db["experiment_results"]
+        self.experiment_parameter_snapshots = self.db["experiment_parameter_snapshots"]
+        self.experiment_artifacts = self.db["experiment_artifacts"]
         self.research_memory = self.db["research_memory"]
         self.research_reports = self.db["research_reports"]
         self.research_jobs = self.db["research_jobs"]
         self.research_job_attempts = self.db["research_job_attempts"]
         self.task_checkpoints = self.db["task_checkpoints"]
         self.research_sources = self.db["research_sources"]
-        self.experiment_parameter_snapshots.create_index("snapshot_id", unique=True)\n        self.experiment_parameter_snapshots.create_index([("experiment_id", 1), ("version", 1)], unique=True)\n        self.experiment_artifacts.create_index("artifact_id", unique=True)\n        self.experiment_artifacts.create_index("sha256")\n        self.experiment_artifacts.create_index("result_id")\n        self.research_sources.create_index("source_id", unique=True)
+        self.experiment_parameter_snapshots.create_index("snapshot_id", unique=True)
+        self.experiment_parameter_snapshots.create_index([("experiment_id", 1), ("version", 1)], unique=True)
+        self.experiment_artifacts.create_index("artifact_id", unique=True)
+        self.experiment_artifacts.create_index("sha256")
+        self.experiment_artifacts.create_index("result_id")
+        self.research_sources.create_index("source_id", unique=True)
         self.research_sources.create_index("canonical_id", unique=True)
         self.task_checkpoints.create_index("checkpoint_id", unique=True)
         self.task_checkpoints.create_index([("run_id", 1), ("task_id", 1)], unique=True)
