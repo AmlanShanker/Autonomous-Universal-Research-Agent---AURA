@@ -88,10 +88,11 @@ class FakeLLM:
 
 def create_tool_registry(
     database,
+    monkeypatch,
 ) -> ToolRegistry:
     """
-    Create a registry containing the real built-in
-    literature-search tool and its persistent definition.
+    Create a registry with a deterministic literature-search
+    result so this end-to-end test never depends on arXiv uptime.
     """
 
     registry = ToolRegistry()
@@ -121,6 +122,19 @@ def create_tool_registry(
         definition
     )
 
+    # Keep the integration test focused on orchestration and context
+    # propagation; the live arXiv HTTP integration is tested separately.
+    monkeypatch.setattr(
+        registry.get("literature_search"),
+        "execute",
+        lambda query, max_results=5: {
+            "query": query,
+            "source": "arXiv",
+            "results": [],
+            "count": 0,
+        },
+    )
+
     database.save_tool(
         definition
     )
@@ -137,7 +151,7 @@ def create_tool_registry(
     return registry
 
 
-def test_end_to_end_research_run_completes_with_context():
+def test_end_to_end_research_run_completes_with_context(monkeypatch):
     database = InMemoryDatabase()
 
     llm = FakeLLM()
@@ -167,7 +181,8 @@ def test_end_to_end_research_run_completes_with_context():
     database.save_research_run(run)
 
     tool_registry = create_tool_registry(
-        database
+        database,
+        monkeypatch,
     )
 
     executor = TaskExecutor(
