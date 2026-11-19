@@ -32,7 +32,7 @@ def test_execution_sandbox_rejects_unregistered_or_generated_tools():
     sandbox = ToolExecutionSandbox()
 
     with pytest.raises(PermissionError, match="not permitted"):
-        sandbox.execute(FakeTool(), query="ok") if False else sandbox.execute(
+        sandbox.execute(
             type("GeneratedTool", (), {"name": "generated_tool", "execute": lambda self: {}})()
         )
 
