@@ -52,7 +52,39 @@ class InMemoryDatabase(Database):
         return [item for item in self.experiment_results.values() if item.run_id == run_id]
 
     def save_research_job(self, job: ResearchJob) -> None:
+        active_statuses = {
+            ResearchJobStatus.QUEUED,
+            ResearchJobStatus.RUNNING,
+            ResearchJobStatus.CANCEL_REQUESTED,
+        }
         with self._job_lock:
+            if job.idempotency_key:
+                duplicate_key = next(
+                    (
+                        existing
+                        for existing in self.research_jobs.values()
+                        if existing.idempotency_key == job.idempotency_key
+                        and existing.job_id != job.job_id
+                    ),
+                    None,
+                )
+                if duplicate_key is not None:
+                    raise ValueError("Idempotency key is already associated with another research job.")
+
+            if job.status in active_statuses:
+                duplicate_active = next(
+                    (
+                        existing
+                        for existing in self.research_jobs.values()
+                        if existing.job_id != job.job_id
+                        and existing.run_id == job.run_id
+                        and existing.status in active_statuses
+                    ),
+                    None,
+                )
+                if duplicate_active is not None:
+                    raise ValueError("This research run already has an active job.")
+
             job.touch()
             self.research_jobs[job.job_id] = job
 
