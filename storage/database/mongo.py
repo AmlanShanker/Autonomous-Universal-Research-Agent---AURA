@@ -5,7 +5,7 @@ from pymongo import MongoClient, ReturnDocument
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
-from storage.models.experiment import ExperimentDefinition, ExperimentResult
+from storage.models.experiment import (\n    ExperimentArtifact, ExperimentDefinition, ExperimentParameterSnapshot, ExperimentResult,\n)
 from storage.models.execution import ExecutionResult
 from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
@@ -33,14 +33,14 @@ class MongoDatabase(Database):
         self.tool_implementations = self.db["tool_implementations"]
         self.execution_results = self.db["execution_results"]
         self.experiments = self.db["experiments"]
-        self.experiment_results = self.db["experiment_results"]
+        self.experiment_results = self.db["experiment_results"]\n        self.experiment_parameter_snapshots = self.db["experiment_parameter_snapshots"]\n        self.experiment_artifacts = self.db["experiment_artifacts"]
         self.research_memory = self.db["research_memory"]
         self.research_reports = self.db["research_reports"]
         self.research_jobs = self.db["research_jobs"]
         self.research_job_attempts = self.db["research_job_attempts"]
         self.task_checkpoints = self.db["task_checkpoints"]
         self.research_sources = self.db["research_sources"]
-        self.research_sources.create_index("source_id", unique=True)
+        self.experiment_parameter_snapshots.create_index("snapshot_id", unique=True)\n        self.experiment_parameter_snapshots.create_index([("experiment_id", 1), ("version", 1)], unique=True)\n        self.experiment_artifacts.create_index("artifact_id", unique=True)\n        self.experiment_artifacts.create_index("sha256")\n        self.experiment_artifacts.create_index("result_id")\n        self.research_sources.create_index("source_id", unique=True)
         self.research_sources.create_index("canonical_id", unique=True)
         self.task_checkpoints.create_index("checkpoint_id", unique=True)
         self.task_checkpoints.create_index([("run_id", 1), ("task_id", 1)], unique=True)
@@ -437,6 +437,49 @@ class MongoDatabase(Database):
             return None
         document.pop("_id", None)
         return ExperimentDefinition.model_validate(document)
+
+    def save_experiment_parameter_snapshot(self, snapshot: ExperimentParameterSnapshot) -> None:
+        existing = self.experiment_parameter_snapshots.find_one({
+            "experiment_id": snapshot.experiment_id, "version": snapshot.version
+        })
+        if existing is not None:
+            existing.pop("_id", None)
+            current = ExperimentParameterSnapshot.model_validate(existing)
+            if current != snapshot:
+                raise ValueError("Experiment parameter snapshots are immutable.")
+            return
+        self.experiment_parameter_snapshots.insert_one(snapshot.model_dump(mode="json"))
+
+    def get_experiment_parameter_snapshot(self, snapshot_id: str) -> ExperimentParameterSnapshot | None:
+        document = self.experiment_parameter_snapshots.find_one({"snapshot_id": snapshot_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ExperimentParameterSnapshot.model_validate(document)
+
+    def save_experiment_artifact(self, artifact: ExperimentArtifact) -> None:
+        existing = self.experiment_artifacts.find_one({"artifact_id": artifact.artifact_id})
+        if existing is not None:
+            existing.pop("_id", None)
+            current = ExperimentArtifact.model_validate(existing)
+            if current != artifact:
+                raise ValueError("Experiment artifacts are immutable.")
+            return
+        self.experiment_artifacts.insert_one(artifact.model_dump(mode="json"))
+
+    def get_experiment_artifact(self, artifact_id: str) -> ExperimentArtifact | None:
+        document = self.experiment_artifacts.find_one({"artifact_id": artifact_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ExperimentArtifact.model_validate(document)
+
+    def list_experiment_artifacts(self, result_id: str) -> list[ExperimentArtifact]:
+        artifacts = []
+        for document in self.experiment_artifacts.find({"result_id": result_id}):
+            document.pop("_id", None)
+            artifacts.append(ExperimentArtifact.model_validate(document))
+        return artifacts
 
     def save_experiment_result(self, result: ExperimentResult) -> None:
         self.experiment_results.replace_one(
