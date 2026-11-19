@@ -4,6 +4,7 @@ from memory.research_memory import ResearchMemoryItem
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
+from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob
 from storage.models.job_attempt import ResearchJobAttempt
@@ -19,6 +20,22 @@ from storage.models.research import (
 
 
 class Database(ABC):
+
+    @abstractmethod
+    def save_research_source(self, source: ResearchSource) -> None:
+        pass
+
+    @abstractmethod
+    def get_research_source(self, source_id: str) -> ResearchSource | None:
+        pass
+
+    @abstractmethod
+    def get_research_source_by_canonical_id(self, canonical_id: str) -> ResearchSource | None:
+        pass
+
+    @abstractmethod
+    def list_research_sources(self) -> list[ResearchSource]:
+        pass
 
     @abstractmethod
     def save_research_report(self, report: ResearchReport) -> None:
