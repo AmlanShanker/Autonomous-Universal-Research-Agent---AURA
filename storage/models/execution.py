@@ -5,10 +5,12 @@ class ExecutionResult(BaseModel):
     """
     Persistent record of one research-tool execution.
 
-    This model stores the evidence produced by executing
-    a specific tool implementation during a research run.
+    This model stores evidence produced by a trusted tool or an
+    internal, evidence-bound analysis task during a research run.
 
-    It represents execution history, not a research conclusion.
+    Internal analysis records use an explicit execution_type metadata
+    value and an application-owned implementation identifier. The
+    record represents execution history, not a research conclusion.
     """
 
     result_id: str

@@ -77,5 +77,17 @@ class ResearchReportBuilder:
                 "completed_task_count": len(set(run.completed_tasks)),
                 "failed_task_count": len(set(run.failed_tasks)),
                 "success_criteria": list(plan.success_criteria),
+                "execution_artifacts": [
+                    {
+                        "result_id": result.result_id,
+                        "task_id": result.task_id,
+                        "execution_type": result.metadata.get("execution_type", "tool"),
+                        "tool_id": result.tool_id,
+                        "status": result.status,
+                        "analysis_status": result.output.get("analysis_status"),
+                        "dependency_result_ids": result.metadata.get("dependency_result_ids", []),
+                    }
+                    for result in executions
+                ],
             },
         )

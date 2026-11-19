@@ -140,3 +140,38 @@ def build_default_experiment_adapters():
     return {
         "retrieval_benchmark": retrieval_benchmark_adapter,
     }
+
+
+
+def describe_default_experiment_adapters() -> dict[str, dict[str, Any]]:
+    """Return the declarative input/output contracts for trusted adapters."""
+    return {
+        "retrieval_benchmark": {
+            "purpose": (
+                "Benchmark AURA's existing research-memory retriever. "
+                "This does not implement BM25, FAISS, dense embeddings, or external indexes."
+            ),
+            "parameters": {
+                "memories": (
+                    "Required list of 1-500 research-memory objects. Each object must "
+                    "include memory_id, research_question, and content; optional supported "
+                    "ResearchMemoryItem fields may also be supplied."
+                ),
+                "queries": (
+                    "Required list of 1-100 objects. Each object must contain exactly "
+                    "query (non-empty string) and relevant_memory_ids (non-empty list of "
+                    "unique memory IDs present in memories)."
+                ),
+                "limit": "Optional integer from 1 to 50; defaults to 5.",
+            },
+            "metrics": [
+                "precision_at_k",
+                "recall_at_k",
+                "mean_reciprocal_rank",
+            ],
+            "output": (
+                "Per-query retrieved IDs and relevance labels, aggregate precision, "
+                "recall, and mean reciprocal rank."
+            ),
+        }
+    }

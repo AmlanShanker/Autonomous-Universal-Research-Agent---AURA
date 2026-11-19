@@ -155,6 +155,7 @@ def main():
         run_id=run.run_id,
         tool_registry=tool_registry,
         experiment_adapters=experiment_adapters,
+        llm_client=llm_client,
     )
     executor.run()
 

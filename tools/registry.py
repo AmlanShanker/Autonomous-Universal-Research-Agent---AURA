@@ -698,3 +698,58 @@ class ToolRegistry:
         return list(
             self.implementations.keys()
         )
+
+
+
+def build_default_tool_registry(database: Database) -> ToolRegistry:
+    """
+    Build the application's trusted registry and provision metadata for
+    its application-owned built-in tools.
+
+    ToolRegistry itself deliberately does not invent definitions: callers
+    that need a production-ready registry use this application bootstrap.
+    Only the already registered built-in ResearchTool instances receive
+    definitions; generated tool specifications remain non-executable.
+    """
+    registry = ToolRegistry(database=database)
+
+    for tool_name in registry.list_tools():
+        if registry.get_definition(tool_name) is not None:
+            continue
+
+        tool = registry.get(tool_name)
+        if tool is None:
+            continue
+
+        definition = ToolDefinition(
+            tool_id=tool.name,
+            name=tool.name,
+            capability=tool.name,
+            description=tool.description,
+            purpose="Application-owned trusted built-in research tool.",
+            status="draft",
+        )
+        registry.register_definition(definition)
+        database.save_tool(definition)
+
+    return registry
+
+
+
+def describe_default_tools() -> dict[str, dict]:
+    """Return input contracts for the application's built-in executable tools."""
+    return {
+        "literature_search": {
+            "description": "Search scholarly literature on arXiv.",
+            "required_inputs": {"query": "non-empty string"},
+            "optional_inputs": {"max_results": "integer from 1 to 25; defaults to 5"},
+        },
+        "dataset_download": {
+            "description": "Download an HTTP/HTTPS dataset into storage/downloads.",
+            "required_inputs": {
+                "source_url": "HTTP or HTTPS URL",
+                "destination_path": "relative path inside storage/downloads",
+            },
+            "optional_inputs": {"checksum": "optional SHA-256 hex digest"},
+        },
+    }
