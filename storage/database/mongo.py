@@ -66,6 +66,33 @@ class MongoDatabase(Database):
         )
         self.research_jobs.create_index([("status", 1), ("created_at", 1)])
 
+    def save_research_source(self, source: ResearchSource) -> None:
+        self.research_sources.replace_one(
+            {"canonical_id": source.canonical_id},
+            source.model_dump(mode="json"),
+            upsert=True,
+        )
+
+    def get_research_source(self, source_id: str) -> ResearchSource | None:
+        document = self.research_sources.find_one({"source_id": source_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ResearchSource.model_validate(document)
+
+    def get_research_source_by_canonical_id(self, canonical_id: str) -> ResearchSource | None:
+        document = self.research_sources.find_one({"canonical_id": canonical_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ResearchSource.model_validate(document)
+
+    def list_research_sources(self) -> list[ResearchSource]:
+        return [
+            ResearchSource.model_validate({key: value for key, value in doc.items() if key != "_id"})
+            for doc in self.research_sources.find().sort("canonical_id", 1)
+        ]
+
     def save_research_report(self, report: ResearchReport) -> None:
         self.research_reports.replace_one(
             {"report_id": report.report_id}, report.model_dump(mode="json"), upsert=True
