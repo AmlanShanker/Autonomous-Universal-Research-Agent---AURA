@@ -15,6 +15,7 @@ from memory.research_memory_retriever import ResearchMemoryRetriever
 from storage.database.base import Database
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
+from agents.evidence_quality import deduplicate_sources, normalize_source
 from storage.models.task_checkpoint import TaskCheckpoint
 from storage.models.experiment import ExperimentDefinition
 from storage.models.research import (
@@ -1541,6 +1542,22 @@ Return ONLY one valid JSON object with exactly these top-level fields:
         self.database.save_execution_result(
             execution_result
         )
+
+        # Persist normalized scholarly sources independently of execution history.
+        if tool_name == "literature_search" and isinstance(output, dict):
+            records = output.get("results", [])
+            if isinstance(records, list):
+                sources = deduplicate_sources([
+                    normalize_source(
+                        record,
+                        query=str(output.get("query", "")),
+                        provider=str(output.get("source", "unknown")),
+                    )
+                    for record in records if isinstance(record, dict)
+                ])
+                for source in sources:
+                    self._ensure_active()
+                    self.database.save_research_source(source)
 
         self.context.add_result(
             result_id=execution_result.result_id,
