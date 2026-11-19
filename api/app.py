@@ -3,7 +3,8 @@ import uuid
 from datetime import datetime, timezone
 from collections.abc import Callable
 
-from fastapi import FastAPI, Header, HTTPException
+from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
@@ -25,6 +26,7 @@ from storage.models.job_stats import ResearchJobQueueStats
 from storage.models.report import ResearchReport
 from storage.models.execution import ExecutionResult
 from storage.models.research import ResearchPlan, ResearchRun, ResearchTask
+from api.security import APIKeyAuthenticator, InMemoryRateLimiter, client_identity
 from tools.registry import (
     ToolRegistry,
     build_default_tool_registry,
@@ -33,6 +35,10 @@ from tools.registry import (
 
 
 load_dotenv()
+
+
+def _role_level(role: str) -> int:
+    return {"reader": 1, "operator": 2, "admin": 3}.get(role, 0)
 
 
 class ResearchQuestionRequest(BaseModel):
@@ -93,6 +99,52 @@ def create_app(
         version="0.1.0",
     )
     app.state.database = db
+    authenticator = APIKeyAuthenticator.from_environment()
+    rate_limiter = InMemoryRateLimiter.from_environment()
+    app.state.api_authenticator = authenticator
+    app.state.rate_limiter = rate_limiter
+
+    @app.middleware("http")
+    async def enforce_api_security(request: Request, call_next):
+        principal = authenticator.authenticate(request.headers.get("authorization"))
+        client_host = request.client.host if request.client else None
+        if authenticator.enabled and principal is not None:
+            identity = f"key:{principal.key_id}"
+        else:
+            # Do not trust X-Forwarded-For unless a trusted proxy layer is configured.
+            identity = client_identity(client_host)
+
+        allowed, remaining, reset_seconds = rate_limiter.check(identity)
+        if not allowed:
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "API rate limit exceeded. Retry after the current window."},
+                headers={
+                    "Retry-After": str(max(1, reset_seconds)),
+                    "X-RateLimit-Limit": str(rate_limiter.limit),
+                    "X-RateLimit-Remaining": "0",
+                },
+            )
+
+        if authenticator.enabled and request.url.path != "/health":
+            if principal is None:
+                return JSONResponse(
+                    status_code=401,
+                    content={"detail": "A valid bearer API key is required."},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            required_level = 1 if request.method in {"GET", "HEAD", "OPTIONS"} else 2
+            if _role_level(principal.role) < required_level:
+                return JSONResponse(
+                    status_code=403,
+                    content={"detail": "The API key role is not permitted to perform this operation."},
+                )
+
+        response = await call_next(request)
+        response.headers["X-RateLimit-Limit"] = str(rate_limiter.limit)
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
+        response.headers["X-RateLimit-Reset-Seconds"] = str(reset_seconds)
+        return response
 
     @app.get("/health", tags=["system"])
     def health() -> dict[str, str]:
