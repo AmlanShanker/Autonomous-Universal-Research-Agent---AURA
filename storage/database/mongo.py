@@ -228,8 +228,18 @@ class MongoDatabase(Database):
         self, job: ResearchJob, worker_id: str, lease_token: str
     ) -> bool:
         now = datetime.now(timezone.utc)
+        if job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}:
+            if job.worker_id != worker_id or job.lease_token != lease_token:
+                return False
         job.touch()
-        result = self.research_jobs.replace_one(
+        update_fields = job.model_dump()
+        if job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}:
+            # Keep the database's latest heartbeat values rather than replacing
+            # them with an older lease timestamp from this worker's snapshot.
+            update_fields.pop("worker_id", None)
+            update_fields.pop("lease_token", None)
+            update_fields.pop("lease_expires_at", None)
+        result = self.research_jobs.update_one(
             {
                 "job_id": job.job_id,
                 "worker_id": worker_id,
@@ -237,9 +247,9 @@ class MongoDatabase(Database):
                 "status": {"$in": [ResearchJobStatus.RUNNING.value, ResearchJobStatus.CANCEL_REQUESTED.value]},
                 "lease_expires_at": {"$gt": now},
             },
-            job.model_dump(),
+            {"$set": update_fields},
         )
-        return result.modified_count == 1 or result.matched_count == 1
+        return result.matched_count == 1
 
     def get_research_job_queue_stats(self) -> ResearchJobQueueStats:
         now = datetime.now(timezone.utc)
