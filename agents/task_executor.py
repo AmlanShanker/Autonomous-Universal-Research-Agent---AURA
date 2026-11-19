@@ -388,7 +388,7 @@ class TaskExecutor:
                 task.task_id
             ] = result
 
-            self._save_task_checkpoint(task, "completed", {"task_result": result})
+            self._save_task_checkpoint(task, "completed", {"task_id": task.task_id})
             task.status = "completed"
 
             self._ensure_active()
@@ -968,6 +968,34 @@ class TaskExecutor:
         # Keep full records persisted, but pass only a bounded evidence projection to the LLM.
         analysis_dependencies = self._bound_analysis_evidence(dependency_items)
         analysis_experiments = self._bound_analysis_value(experiment_results)
+        dependency_result_ids = sorted(
+            str(item.get("result_id"))
+            for item in dependency_items
+            if item.get("result_id") is not None
+        )
+        analysis_identity = json.dumps(
+            {
+                "task_fingerprint": self._task_fingerprint(task),
+                "dependency_result_ids": dependency_result_ids,
+                "experiment_results": analysis_experiments,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        )
+        stable_analysis_result_id = str(uuid.uuid5(
+            uuid.NAMESPACE_URL,
+            f"aura:analysis:{self.run_id}:{task.task_id}:{analysis_identity}",
+        ))
+        existing_analysis = self.database.get_execution_result(stable_analysis_result_id)
+        if existing_analysis is not None and existing_analysis.status == "success":
+            return {
+                "status": existing_analysis.output.get("status", "completed"),
+                "task_id": task.task_id,
+                "analysis": existing_analysis.output.get("analysis", {}),
+                "result_id": existing_analysis.result_id,
+                "research_context": self.build_task_context(task),
+            }
 
         if task.task_type.strip().lower() == "experiment" and experiment_results:
             analysis = {
@@ -1155,7 +1183,7 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 raise ValueError("Findings require at least one traceable evidence reference.")
             analysis_status = "completed"
 
-        result_id = str(uuid.uuid4())
+        result_id = stable_analysis_result_id
         dependency_result_ids = [
             item.get("result_id") for item in dependency_items
             if item.get("result_id")
