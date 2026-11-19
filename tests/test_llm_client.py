@@ -12,6 +12,9 @@ def isolate_environment(monkeypatch):
     # Do not let a developer's local .env file leak into configuration tests.
     monkeypatch.setattr("agents.llm_client.load_dotenv", lambda: None)
     monkeypatch.delenv("LLM_FALLBACK_PROVIDER", raising=False)
+    # Legacy fallback tests verify a single primary attempt; retry behavior is
+    # exercised explicitly by tests that set LLM_RETRY_ATTEMPTS.
+    monkeypatch.setenv("LLM_RETRY_ATTEMPTS", "0")
 
 
 def test_defaults_to_groq_for_backward_compatibility(monkeypatch):
