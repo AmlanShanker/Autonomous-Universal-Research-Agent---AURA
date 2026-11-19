@@ -997,6 +997,7 @@ class TaskExecutor:
         ))
         existing_analysis = self.database.get_execution_result(stable_analysis_result_id)
         if existing_analysis is not None and existing_analysis.status == "success":
+            self._ensure_active()
             self.context.add_result(
                 result_id=existing_analysis.result_id,
                 task_id=existing_analysis.task_id,
@@ -1408,6 +1409,7 @@ Return ONLY one valid JSON object with exactly these top-level fields:
         result_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"aura:tool:{self.run_id}:{identity}"))
         existing = self.database.get_execution_result(result_id)
         if existing is not None and existing.status == "success":
+            self._ensure_active()
             self.context.add_result(
                 result_id=existing.result_id,
                 task_id=existing.task_id,
