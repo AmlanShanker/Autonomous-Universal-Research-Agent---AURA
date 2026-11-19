@@ -938,6 +938,13 @@ class TaskExecutor:
                         "authors": cls._bound_analysis_value(record.get("authors", []), max_string_chars=120, max_list_items=6),
                         "abstract": str(record.get("abstract", ""))[:600],
                         "url": str(record.get("url", ""))[:300],
+                        "source_id": str(record.get("source_id", ""))[:64],
+                        "canonical_id": str(record.get("canonical_id", ""))[:500],
+                        "doi": record.get("doi"),
+                        "arxiv_id": record.get("arxiv_id"),
+                        "source_provider": str(record.get("source_provider", ""))[:100],
+                        "credibility_score": record.get("credibility_score"),
+                        "credibility_reasons": cls._bound_analysis_value(record.get("credibility_reasons", []), max_string_chars=200, max_list_items=8),
                     })
                 compact_output = {
                     "query": str(output.get("query", ""))[:300],
