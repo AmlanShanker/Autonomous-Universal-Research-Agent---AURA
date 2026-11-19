@@ -201,6 +201,8 @@ class ExperimentRunner:
                     uuid.NAMESPACE_URL,
                     f"aura:experiment-artifact:{stable_result_id}:{name}:{digest}",
                 ))
+                if artifact_id in artifact_ids:
+                    continue
                 artifact = ExperimentArtifact(
                     artifact_id=artifact_id,
                     experiment_id=experiment.experiment_id,
