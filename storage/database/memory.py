@@ -6,6 +6,7 @@ from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
+from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
@@ -35,6 +36,7 @@ class InMemoryDatabase(Database):
         self.research_jobs: dict[str, ResearchJob] = {}
         self.research_job_attempts: dict[str, ResearchJobAttempt] = {}
         self.task_checkpoints: dict[str, TaskCheckpoint] = {}
+        self.research_sources: dict[str, ResearchSource] = {}
         self._job_lock = Lock()
 
     def save_research_report(self, report: ResearchReport) -> None:
