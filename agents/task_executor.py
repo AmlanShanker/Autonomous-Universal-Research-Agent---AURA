@@ -1028,13 +1028,13 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 allowed_ids_text = json.dumps(sorted(allowed_result_ids))
                 correction_prompt = (
                     prompt
-                    + "\\n\\nYour previous JSON had invalid evidence references:\\n"
+                    + "\n\nYour previous JSON had invalid evidence references:\n"
                     + json.dumps(invalid_evidence, ensure_ascii=False)
-                    + "\\nThe ONLY permitted source_result_id values are: "
+                    + "\nThe ONLY permitted source_result_id values are: "
                     + allowed_ids_text
-                    + "\\nReturn the complete corrected JSON object. Preserve every claim "
+                    + "\nReturn the complete corrected JSON object. Preserve every claim "
                     "only if it is supported by one of those supplied results. Do not invent IDs."
-                    + "\\nPrevious response:\\n"
+                    + "\nPrevious response:\n"
                     + text
                 )
                 corrected_response = self.llm_client.generate(correction_prompt)
@@ -1047,7 +1047,7 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                         corrected_lines = corrected_lines[1:]
                     if corrected_lines and corrected_lines[-1].strip() == "```":
                         corrected_lines = corrected_lines[:-1]
-                    corrected_text = "\\n".join(corrected_lines).strip()
+                    corrected_text = "\n".join(corrected_lines).strip()
                 corrected_start = corrected_text.find("{")
                 if corrected_start < 0:
                     raise ValueError("LLM evidence-correction response did not contain JSON.")
@@ -1063,8 +1063,6 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                         "LLM evidence-correction response still contains invalid dependency references."
                     )
                 analysis = corrected_analysis
-            if analysis["findings"] and not analysis["evidence"]:
-                raise ValueError("Findings require at least one traceable evidence reference.")
             if analysis["findings"] and not analysis["evidence"]:
                 raise ValueError("Findings require at least one traceable evidence reference.")
             analysis_status = "completed"
