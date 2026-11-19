@@ -292,6 +292,7 @@ class TaskExecutor:
         if run is None:
             return
 
+        self._ensure_active()
         run.transition_to(
             new_status
         )
@@ -381,6 +382,7 @@ class TaskExecutor:
             return True
 
         except CapabilityGapError as exc:
+            self._ensure_active()
             task.status = "blocked"
 
             self._ensure_active()
@@ -413,6 +415,7 @@ class TaskExecutor:
             return False
 
         except ToolValidationError as exc:
+            self._ensure_active()
             task.status = "blocked"
 
             self._ensure_active()
@@ -445,6 +448,7 @@ class TaskExecutor:
             return False
 
         except ToolImplementationError as exc:
+            self._ensure_active()
             task.status = "blocked"
 
             self._ensure_active()
@@ -477,6 +481,7 @@ class TaskExecutor:
             return False
 
         except Exception as exc:
+            self._ensure_active()
             task.status = "failed"
 
             self._ensure_active()
@@ -1466,6 +1471,7 @@ Return ONLY one valid JSON object with exactly these top-level fields:
         )
 
         if run is not None:
+            self._ensure_active()
             run.transition_to(
                 ResearchRunStatus.RUNNING
             )
@@ -1623,6 +1629,7 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 len(self.completed_tasks)
                 == len(self.tasks)
             ):
+                self._ensure_active()
                 run.transition_to(
                     ResearchRunStatus.COMPLETED
                 )
