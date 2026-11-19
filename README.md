@@ -62,6 +62,7 @@ The interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 - `POST /research/runs/{run_id}/execute` — execute the task graph synchronously (development/compatibility path).
 - `POST /research/runs/{run_id}/jobs` — enqueue a durable background execution job (optional `Idempotency-Key` header).
 - `GET /research/jobs/{job_id}` — inspect job state and task progress.
+- `GET /research/jobs/queue/stats` — inspect queue counts, active workers, expired leases, and oldest queued job.
 - `GET /research/jobs/{job_id}/attempts` — inspect each worker claim, including successful, failed, cancelled, and lease-expired attempts.
 - `POST /research/jobs/{job_id}/cancel` — cancel a queued job or request cooperative cancellation of a running job.
 - `POST /research/jobs/{job_id}/retry` — requeue a failed job within its bounded retry budget.
