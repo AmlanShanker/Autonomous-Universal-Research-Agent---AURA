@@ -241,10 +241,10 @@ class InMemoryDatabase(Database):
             )
 
     def save_research_task(self, task: ResearchTask) -> None:
-        self.research_tasks[task.task_id] = task
+        self.research_tasks[task.task_id] = task.model_copy(deep=True)
 
     def save_research_run(self, run: ResearchRun) -> None:
-        self.research_runs[run.run_id] = run
+        self.research_runs[run.run_id] = run.model_copy(deep=True)
 
     def save_tool(self, tool: ToolDefinition) -> None:
         self.tools[tool.tool_id] = tool
@@ -287,10 +287,12 @@ class InMemoryDatabase(Database):
         return list(self.research_memory.values())
 
     def get_research_task(self, task_id: str) -> ResearchTask | None:
-        return self.research_tasks.get(task_id)
+        task = self.research_tasks.get(task_id)
+        return task.model_copy(deep=True) if task is not None else None
 
     def get_research_run(self, run_id: str) -> ResearchRun | None:
-        return self.research_runs.get(run_id)
+        run = self.research_runs.get(run_id)
+        return run.model_copy(deep=True) if run is not None else None
 
     def get_tool(self, tool_id: str) -> ToolDefinition | None:
         return self.tools.get(tool_id)
