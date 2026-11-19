@@ -38,7 +38,11 @@ The interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 
 ### Configuration
 
-- `GROQ_API_KEY` is required when an endpoint first needs the default LLM client.
+- Set `LLM_PROVIDER=groq` (the default) or `LLM_PROVIDER=adaption` to select the LLM provider.
+- Groq requires `GROQ_API_KEY`; `GROQ_MODEL` is optional and defaults to `openai/gpt-oss-120b`.
+- Adaption Labs requires `ADAPTION_API_KEY` and `ADAPTION_MODEL`.
+- Both providers use the existing OpenAI-compatible client; provider selection does not require changing agent code.
+- Copy `.env.example` to `.env` as a starting point and fill in credentials locally.
 - The API uses an in-memory database by default.
 - Set `AURA_DATABASE_BACKEND=mongodb`, `MONGODB_URI`, and optionally `MONGODB_DATABASE` to use MongoDB.
 - Keep credentials in the local environment; do not commit `.env` files or share secrets.
