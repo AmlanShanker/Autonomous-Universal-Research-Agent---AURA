@@ -1,8 +1,11 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi.testclient import TestClient
 
 from api.app import create_app
 from storage.database.memory import InMemoryDatabase
 from storage.models.job import ResearchJob, ResearchJobStatus
+from storage.models.job_attempt import ResearchJobAttempt, ResearchJobAttemptStatus
 from storage.models.research import ResearchPlan, ResearchRun, ResearchRunStatus, ResearchTask
 from workers.research_worker import ResearchWorker
 
@@ -112,6 +115,11 @@ def test_worker_executes_queued_job_and_persists_progress():
     assert completed.progress == 100.0
     assert completed.completed_tasks == 1
     assert database.get_research_run(run_id).status == ResearchRunStatus.COMPLETED
+    attempts_response = client.get(f"/research/jobs/{job['job_id']}/attempts")
+    assert attempts_response.status_code == 200
+    assert len(attempts_response.json()) == 1
+    assert attempts_response.json()[0]["status"] == "succeeded"
+    assert attempts_response.json()[0]["worker_id"] == "test-worker"
 
 
 def test_worker_claims_each_job_only_once_while_lease_is_active():
@@ -161,3 +169,71 @@ def test_cancel_unknown_job_returns_not_found():
     response = client.post("/research/jobs/missing/cancel")
 
     assert response.status_code == 404
+
+
+
+def test_worker_records_failed_attempt_without_exposing_unbounded_error():
+    database = InMemoryDatabase()
+    job = ResearchJob(job_id="job-missing-run", run_id="missing-run")
+    database.save_research_job(job)
+
+    worker = ResearchWorker(database, worker_id="failure-worker", experiment_adapters={})
+    result = worker.process_next()
+
+    assert result.status == ResearchJobStatus.QUEUED
+    attempts = database.list_research_job_attempts(job.job_id)
+    assert len(attempts) == 1
+    assert attempts[0].status == ResearchJobAttemptStatus.FAILED
+    assert attempts[0].error == "Research run was not found."
+    assert attempts[0].finished_at is not None
+
+
+def test_worker_marks_previous_running_attempt_as_lease_expired():
+    database = InMemoryDatabase()
+    job = ResearchJob(
+        job_id="job-expired-attempt",
+        run_id="missing-run",
+        status=ResearchJobStatus.RUNNING,
+        attempts=1,
+        worker_id="old-worker",
+        lease_expires_at=datetime.now(timezone.utc) - timedelta(seconds=1),
+    )
+    database.save_research_job(job)
+    previous = ResearchJobAttempt(
+        attempt_id="job-expired-attempt:1",
+        job_id=job.job_id,
+        attempt_number=1,
+        worker_id="old-worker",
+    )
+    database.save_research_job_attempt(previous)
+
+    worker = ResearchWorker(database, worker_id="replacement-worker", experiment_adapters={})
+    worker.process_next()
+
+    attempts = database.list_research_job_attempts(job.job_id)
+    assert [item.attempt_number for item in attempts] == [1, 2]
+    assert attempts[0].status == ResearchJobAttemptStatus.LEASE_EXPIRED
+    assert attempts[0].finished_at is not None
+    assert attempts[1].status == ResearchJobAttemptStatus.FAILED
+
+
+def test_job_attempt_endpoint_returns_not_found_for_unknown_job():
+    client, _ = build_client()
+
+    response = client.get("/research/jobs/missing/attempts")
+
+    assert response.status_code == 404
+
+
+def test_job_attempt_model_rejects_invalid_finish_transition():
+    attempt = ResearchJobAttempt(
+        attempt_id="attempt-invalid",
+        job_id="job-invalid",
+        attempt_number=1,
+        worker_id="worker",
+    )
+    attempt.finish(ResearchJobAttemptStatus.SUCCEEDED)
+    import pytest
+
+    with pytest.raises(ValueError, match="Only running attempts"):
+        attempt.finish(ResearchJobAttemptStatus.FAILED)

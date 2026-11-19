@@ -11,6 +11,7 @@ from agents.task_executor import ExecutionCancelled, TaskExecutor
 from storage.database.base import Database
 from storage.database.mongo import MongoDatabase
 from storage.models.job import ResearchJob, ResearchJobStatus
+from storage.models.job_attempt import ResearchJobAttempt, ResearchJobAttemptStatus
 from storage.models.research import ResearchRunStatus
 from tools.registry import ToolRegistry, build_default_tool_registry
 
@@ -36,8 +37,45 @@ class ResearchWorker:
         job = self.database.claim_next_research_job(self.worker_id, self.lease_seconds)
         if job is None:
             return None
-        self._execute(job)
+        attempt = self._begin_attempt(job)
+        try:
+            self._execute(job)
+        except Exception as exc:
+            self._finish_failed(job, str(exc))
+        finally:
+            latest = self.database.get_research_job(job.job_id) or job
+            if latest.status == ResearchJobStatus.SUCCEEDED:
+                attempt_status = ResearchJobAttemptStatus.SUCCEEDED
+            elif latest.status == ResearchJobStatus.CANCELLED:
+                attempt_status = ResearchJobAttemptStatus.CANCELLED
+            else:
+                attempt_status = ResearchJobAttemptStatus.FAILED
+            attempt.finish(
+                attempt_status,
+                latest.error if attempt_status == ResearchJobAttemptStatus.FAILED else None,
+            )
+            self.database.save_research_job_attempt(attempt)
         return self.database.get_research_job(job.job_id)
+
+    def _begin_attempt(self, job: ResearchJob) -> ResearchJobAttempt:
+        # A previous RUNNING record means its worker disappeared before it
+        # could close the attempt; the new lease claim proves that attempt expired.
+        for previous in self.database.list_research_job_attempts(job.job_id):
+            if previous.status == ResearchJobAttemptStatus.RUNNING:
+                previous.finish(
+                    ResearchJobAttemptStatus.LEASE_EXPIRED,
+                    "Worker lease expired before the attempt completed.",
+                )
+                self.database.save_research_job_attempt(previous)
+
+        attempt = ResearchJobAttempt(
+            attempt_id=f"{job.job_id}:{job.attempts}",
+            job_id=job.job_id,
+            attempt_number=job.attempts,
+            worker_id=self.worker_id,
+        )
+        self.database.save_research_job_attempt(attempt)
+        return attempt
 
     def _execute(self, job: ResearchJob) -> None:
         run = self.database.get_research_run(job.run_id)
