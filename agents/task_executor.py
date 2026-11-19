@@ -831,15 +831,20 @@ class TaskExecutor:
                 output = {"value": output}
             if isinstance(output.get("results"), list):
                 records = output["results"]
+                # Include the full retrieved set for normal literature searches.
+                # Bound each record and cap only exceptionally large result sets so
+                # downstream screening does not silently analyse just the first four.
+                max_records = 50
+                selected_records = records[:max_records]
                 compact_records = []
-                for record in records[:4]:
+                for record in selected_records:
                     if not isinstance(record, dict):
                         continue
                     compact_records.append({
                         "title": str(record.get("title", ""))[:240],
                         "publication_year": record.get("publication_year"),
                         "authors": cls._bound_analysis_value(record.get("authors", []), max_string_chars=120, max_list_items=6),
-                        "abstract": str(record.get("abstract", ""))[:400],
+                        "abstract": str(record.get("abstract", ""))[:600],
                         "url": str(record.get("url", ""))[:300],
                     })
                 compact_output = {
@@ -847,7 +852,7 @@ class TaskExecutor:
                     "source": str(output.get("source", ""))[:100],
                     "count_reported": output.get("count", len(records)),
                     "records_included": len(compact_records),
-                    "records_omitted": max(0, len(records) - len(compact_records)),
+                    "records_omitted": max(0, len(records) - len(selected_records)),
                     "results": compact_records,
                 }
             else:
