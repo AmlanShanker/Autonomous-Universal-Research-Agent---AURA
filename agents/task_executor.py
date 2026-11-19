@@ -82,10 +82,9 @@ class TaskExecutor:
         for task in self.tasks.values():
             checkpoint = self.database.get_task_checkpoint(self.run_id, task.task_id)
             if checkpoint is not None and checkpoint.status == "completed":
-                if checkpoint.input_fingerprint == self._task_fingerprint(task):
-                    task.status = "completed"
-                else:
-                    task.status = "pending"
+                # Route checkpoint recovery through execute_task so task/run
+                # completion bookkeeping is repaired as well as the local state.
+                task.status = "pending"
         self.should_cancel = should_cancel or (lambda: False)
         self.progress_callback = progress_callback
         self.llm_client = llm_client
@@ -361,7 +360,16 @@ class TaskExecutor:
             and checkpoint.input_fingerprint == fingerprint
         ):
             task.status = "completed"
+            self._ensure_active()
+            self.database.save_research_task(task)
             self.completed_tasks.add(task.task_id)
+            run = self.database.get_research_run(self.run_id)
+            if run is not None and task.task_id not in run.completed_tasks:
+                run.completed_tasks.append(task.task_id)
+                self._ensure_active()
+                self.database.save_research_run(run)
+            if self.progress_callback is not None:
+                self.progress_callback(len(self.completed_tasks), len(self.tasks))
             return True
 
         self._save_task_checkpoint(task, "running")
