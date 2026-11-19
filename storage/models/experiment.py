@@ -38,6 +38,9 @@ class ExperimentEnvironment(BaseModel):
     python_version: str | None = None
     implementation: str | None = None
     platform: str | None = None
+    runtime_python_version: str | None = None
+    runtime_implementation: str | None = None
+    runtime_platform: str | None = None
     adapter_version: str | None = None
     dependency_lock_sha256: str | None = None
     code_revision: str | None = None
