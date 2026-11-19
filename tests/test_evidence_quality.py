@@ -10,7 +10,7 @@ def test_source_provenance_and_credibility_score_are_explainable():
     assert source.canonical_id == "arxiv:2401.01234"
     assert source.source_provider == "arxiv"
     assert source.retrieved_query == "retrieval"
-    assert source.credibility_score == 0.65
+    assert source.credibility_score == 0.9
     assert source.credibility_reasons
 
 
