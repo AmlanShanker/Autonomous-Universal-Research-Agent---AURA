@@ -30,9 +30,13 @@ class APIKeyAuthenticator:
         seen_ids: set[str] = set()
         seen_digests: set[str] = set()
         for entry in keys or []:
-            key_id = entry.get("id", "").strip()
+            raw_id = entry.get("id", "")
             raw_key = entry.get("key", "")
-            role = entry.get("role", "").strip().lower()
+            raw_role = entry.get("role", "")
+            if not isinstance(raw_id, str) or not isinstance(raw_role, str):
+                raise ValueError("Each API key id and role must be strings.")
+            key_id = raw_id.strip()
+            role = raw_role.strip().lower()
             if not key_id or len(key_id) > 80:
                 raise ValueError("Each API key requires an id of 1 to 80 characters.")
             if not isinstance(raw_key, str) or len(raw_key) < 32:
