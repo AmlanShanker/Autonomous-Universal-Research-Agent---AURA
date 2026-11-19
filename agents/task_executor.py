@@ -989,8 +989,16 @@ class TaskExecutor:
         ))
         existing_analysis = self.database.get_execution_result(stable_analysis_result_id)
         if existing_analysis is not None and existing_analysis.status == "success":
+            self.context.add_result(
+                result_id=existing_analysis.result_id,
+                task_id=existing_analysis.task_id,
+                tool_id=existing_analysis.tool_id,
+                status=existing_analysis.status,
+                output=existing_analysis.output,
+                metadata=existing_analysis.metadata,
+            )
             return {
-                "status": existing_analysis.output.get("status", "completed"),
+                "status": existing_analysis.output.get("analysis_status", "completed"),
                 "task_id": task.task_id,
                 "analysis": existing_analysis.output.get("analysis", {}),
                 "result_id": existing_analysis.result_id,
