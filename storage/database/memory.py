@@ -4,7 +4,9 @@ import uuid
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
-from storage.models.experiment import (\n    ExperimentArtifact, ExperimentDefinition, ExperimentParameterSnapshot, ExperimentResult,\n)
+from storage.models.experiment import (
+    ExperimentArtifact, ExperimentDefinition, ExperimentParameterSnapshot, ExperimentResult,
+)
 from storage.models.execution import ExecutionResult
 from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
@@ -30,7 +32,9 @@ class InMemoryDatabase(Database):
         self.tool_implementations: dict[str, ToolImplementation] = {}
         self.execution_results: dict[str, ExecutionResult] = {}
         self.experiments: dict[str, ExperimentDefinition] = {}
-        self.experiment_results: dict[str, ExperimentResult] = {}\n        self.experiment_parameter_snapshots: dict[str, ExperimentParameterSnapshot] = {}\n        self.experiment_artifacts: dict[str, ExperimentArtifact] = {}
+        self.experiment_results: dict[str, ExperimentResult] = {}
+        self.experiment_parameter_snapshots: dict[str, ExperimentParameterSnapshot] = {}
+        self.experiment_artifacts: dict[str, ExperimentArtifact] = {}
         self.research_memory: dict[str, ResearchMemoryItem] = {}
         self.research_reports: dict[str, ResearchReport] = {}
         self.research_jobs: dict[str, ResearchJob] = {}
