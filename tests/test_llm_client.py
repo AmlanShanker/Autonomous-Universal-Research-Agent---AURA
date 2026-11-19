@@ -3,6 +3,8 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from openai import APIConnectionError, BadRequestError
+
 from agents.llm_client import LLMClient
 
 
@@ -174,9 +176,15 @@ def test_configures_groq_fallback_for_adaption_primary(monkeypatch):
     assert client.fallback_provider == "groq"
     assert client.fallback_model == "openai/gpt-oss-120b"
     assert client._fallback_base_url == "https://api.groq.com/openai/v1"
-    openai_client.assert_called_once_with(
+    assert client.fallback_client is not None
+    assert openai_client.call_count == 2
+    openai_client.assert_any_call(
         api_key="test-adaption-key",
         base_url="https://api.prod.adaptionlabs.ai/api/v1",
+    )
+    openai_client.assert_any_call(
+        api_key="test-groq-key",
+        base_url="https://api.groq.com/openai/v1",
     )
 
 
@@ -195,6 +203,7 @@ def test_configures_adaption_fallback_for_groq_primary(monkeypatch):
     assert client.fallback_provider == "adaption"
     assert client.fallback_model == "qwen3.5-397b"
     assert client._fallback_base_url == "https://api.prod.adaptionlabs.ai/api/v1"
+    assert client.fallback_client is not None
 
 
 def test_rejects_same_primary_and_fallback_provider(monkeypatch):
@@ -239,3 +248,111 @@ def test_fallback_requires_model_when_provider_has_no_default(monkeypatch):
 
     with pytest.raises(RuntimeError, match="ADAPTION_MODEL"):
         LLMClient()
+
+
+def test_generate_falls_back_after_primary_connection_failure(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "adaption")
+    monkeypatch.setenv("ADAPTION_API_KEY", "test-adaption-key")
+    monkeypatch.setenv("ADAPTION_MODEL", "qwen3.5-397b")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+
+    primary = MagicMock()
+    primary.chat.completions.create.side_effect = APIConnectionError(
+        message="primary unavailable", request=MagicMock()
+    )
+    fallback = MagicMock()
+    fallback.chat.completions.create.return_value = SimpleNamespace(
+        choices=[SimpleNamespace(message=SimpleNamespace(content="fallback response"))]
+    )
+    openai_factory = MagicMock(side_effect=[primary, fallback])
+    monkeypatch.setattr("agents.llm_client.OpenAI", openai_factory)
+
+    client = LLMClient()
+    result = client.generate("research prompt")
+
+    assert result == "fallback response"
+    primary.chat.completions.create.assert_called_once_with(
+        model="qwen3.5-397b",
+        messages=[{"role": "user", "content": "research prompt"}],
+    )
+    fallback.chat.completions.create.assert_called_once_with(
+        model="openai/gpt-oss-120b",
+        messages=[{"role": "user", "content": "research prompt"}],
+    )
+
+
+def test_generate_does_not_fallback_for_bad_request(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "adaption")
+    monkeypatch.setenv("ADAPTION_API_KEY", "test-adaption-key")
+    monkeypatch.setenv("ADAPTION_MODEL", "qwen3.5-397b")
+
+    primary = MagicMock()
+    primary.chat.completions.create.side_effect = BadRequestError(
+        "invalid request",
+        response=MagicMock(),
+        body=None,
+    )
+    fallback = MagicMock()
+    openai_factory = MagicMock(side_effect=[primary, fallback])
+    monkeypatch.setattr("agents.llm_client.OpenAI", openai_factory)
+
+    client = LLMClient()
+    with pytest.raises(BadRequestError):
+        client.generate("invalid prompt")
+
+    primary.chat.completions.create.assert_called_once()
+    fallback.chat.completions.create.assert_not_called()
+
+
+def test_generate_preserves_primary_error_when_fallback_is_disabled(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+
+    primary = MagicMock()
+    error = APIConnectionError(message="primary unavailable", request=MagicMock())
+    primary.chat.completions.create.side_effect = error
+    openai_factory = MagicMock(return_value=primary)
+    monkeypatch.setattr("agents.llm_client.OpenAI", openai_factory)
+
+    client = LLMClient()
+    with pytest.raises(APIConnectionError) as raised:
+        client.generate("research prompt")
+
+    assert raised.value is error
+    primary.chat.completions.create.assert_called_once()
+
+
+def test_fallback_failure_is_not_retried_again(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "adaption")
+    monkeypatch.setenv("ADAPTION_API_KEY", "test-adaption-key")
+    monkeypatch.setenv("ADAPTION_MODEL", "qwen3.5-397b")
+
+    primary = MagicMock()
+    primary.chat.completions.create.side_effect = APIConnectionError(
+        message="primary unavailable", request=MagicMock()
+    )
+    fallback = MagicMock()
+    fallback_error = APIConnectionError(
+        message="fallback unavailable", request=MagicMock()
+    )
+    fallback.chat.completions.create.side_effect = fallback_error
+    openai_factory = MagicMock(side_effect=[primary, fallback])
+    monkeypatch.setattr("agents.llm_client.OpenAI", openai_factory)
+
+    client = LLMClient()
+    with pytest.raises(APIConnectionError) as raised:
+        client.generate("research prompt")
+
+    assert raised.value is fallback_error
+    primary.chat.completions.create.assert_called_once()
+    fallback.chat.completions.create.assert_called_once()
+    assert openai_factory.call_count == 2
