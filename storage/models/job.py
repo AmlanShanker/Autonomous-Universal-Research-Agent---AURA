@@ -28,6 +28,7 @@ class ResearchJob(BaseModel):
     error: str | None = None
     worker_id: str | None = None
     lease_expires_at: datetime | None = None
+    lease_token: str | None = None
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     started_at: datetime | None = None

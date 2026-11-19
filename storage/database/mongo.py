@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import uuid
 
 from pymongo import MongoClient, ReturnDocument
 
@@ -136,6 +137,7 @@ class MongoDatabase(Database):
                     "finished_at": now,
                     "worker_id": None,
                     "lease_expires_at": None,
+                    "lease_token": None,
                     "updated_at": now,
                 }
             },
@@ -151,6 +153,9 @@ class MongoDatabase(Database):
                     "status": ResearchJobStatus.FAILED.value,
                     "error": "Maximum worker attempts exceeded.",
                     "finished_at": now,
+                    "worker_id": None,
+                    "lease_expires_at": None,
+                    "lease_token": None,
                     "updated_at": now,
                 }
             },
@@ -171,6 +176,7 @@ class MongoDatabase(Database):
                     "status": ResearchJobStatus.RUNNING.value,
                     "worker_id": worker_id,
                     "lease_expires_at": lease_expiry,
+                    "lease_token": uuid.uuid4().hex,
                     "started_at": now,
                     "error": None,
                     "updated_at": now,
@@ -185,21 +191,86 @@ class MongoDatabase(Database):
         document.pop("_id", None)
         return ResearchJob.model_validate(document)
 
-    def renew_research_job_lease(self, job_id: str, worker_id: str, lease_seconds: int = 3600) -> bool:
+    def renew_research_job_lease(
+        self, job_id: str, worker_id: str, lease_token: str, lease_seconds: int = 3600
+    ) -> bool:
+        now = datetime.now(timezone.utc)
         result = self.research_jobs.update_one(
             {
                 "job_id": job_id,
                 "worker_id": worker_id,
+                "lease_token": lease_token,
                 "status": {"$in": [ResearchJobStatus.RUNNING.value, ResearchJobStatus.CANCEL_REQUESTED.value]},
+                "lease_expires_at": {"$gt": now},
             },
             {
                 "$set": {
-                    "lease_expires_at": datetime.now(timezone.utc) + timedelta(seconds=lease_seconds),
-                    "updated_at": datetime.now(timezone.utc),
+                    "lease_expires_at": now + timedelta(seconds=lease_seconds),
+                    "updated_at": now,
                 }
             },
         )
         return result.modified_count == 1
+
+    def is_research_job_lease_owner(self, job_id: str, worker_id: str, lease_token: str) -> bool:
+        return self.research_jobs.find_one(
+            {
+                "job_id": job_id,
+                "worker_id": worker_id,
+                "lease_token": lease_token,
+                "status": {"$in": [ResearchJobStatus.RUNNING.value, ResearchJobStatus.CANCEL_REQUESTED.value]},
+                "lease_expires_at": {"$gt": datetime.now(timezone.utc)},
+            },
+            {"_id": 1},
+        ) is not None
+
+    def save_research_job_if_lease_owner(
+        self, job: ResearchJob, worker_id: str, lease_token: str
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        if job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}:
+            if job.worker_id != worker_id or job.lease_token != lease_token:
+                return False
+        job.touch()
+        update_fields = job.model_dump()
+        active_statuses = {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}
+        if job.status in active_statuses:
+            # Keep the database's latest heartbeat values rather than replacing
+            # them with an older lease timestamp from this worker's snapshot.
+            update_fields.pop("worker_id", None)
+            update_fields.pop("lease_token", None)
+            update_fields.pop("lease_expires_at", None)
+            # A progress snapshot read before an API cancellation must not
+            # change CANCEL_REQUESTED back to RUNNING.
+            if job.status == ResearchJobStatus.RUNNING:
+                update_fields["status"] = {
+                    "$cond": [
+                        {"$eq": ["$status", ResearchJobStatus.CANCEL_REQUESTED.value]},
+                        ResearchJobStatus.CANCEL_REQUESTED.value,
+                        ResearchJobStatus.RUNNING.value,
+                    ]
+                }
+            pipeline_fields = {
+                key: {"$literal": value}
+                for key, value in update_fields.items()
+                if key != "status"
+            }
+            if "status" in update_fields:
+                pipeline_fields["status"] = update_fields["status"]
+            update = [{"$set": pipeline_fields}]
+        else:
+            update = {"$set": update_fields}
+        result = self.research_jobs.update_one(
+            {
+                "job_id": job.job_id,
+                "worker_id": worker_id,
+                "lease_token": lease_token,
+                "status": {"$in": [ResearchJobStatus.RUNNING.value, ResearchJobStatus.CANCEL_REQUESTED.value]},
+                "lease_expires_at": {"$gt": now},
+            },
+            update,
+        )
+        return result.matched_count == 1
 
     def get_research_job_queue_stats(self) -> ResearchJobQueueStats:
         now = datetime.now(timezone.utc)

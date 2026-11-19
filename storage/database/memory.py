@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from threading import Lock
+import uuid
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
@@ -87,19 +88,21 @@ class InMemoryDatabase(Database):
                     raise ValueError("This research run already has an active job.")
 
             job.touch()
-            self.research_jobs[job.job_id] = job
+            self.research_jobs[job.job_id] = job.model_copy(deep=True)
 
     def get_research_job(self, job_id: str) -> ResearchJob | None:
         with self._job_lock:
-            return self.research_jobs.get(job_id)
+            job = self.research_jobs.get(job_id)
+            return job.model_copy(deep=True) if job is not None else None
 
     def get_research_job_by_idempotency_key(self, key: str) -> ResearchJob | None:
         with self._job_lock:
-            return next((job for job in self.research_jobs.values() if job.idempotency_key == key), None)
+            job = next((job for job in self.research_jobs.values() if job.idempotency_key == key), None)
+            return job.model_copy(deep=True) if job is not None else None
 
     def list_research_jobs_for_run(self, run_id: str) -> list[ResearchJob]:
         with self._job_lock:
-            return [job for job in self.research_jobs.values() if job.run_id == run_id]
+            return [job.model_copy(deep=True) for job in self.research_jobs.values() if job.run_id == run_id]
 
     def claim_next_research_job(self, worker_id: str, lease_seconds: int = 3600) -> ResearchJob | None:
         now = datetime.now(timezone.utc)
@@ -112,6 +115,7 @@ class InMemoryDatabase(Database):
                     job.finished_at = now
                     job.worker_id = None
                     job.lease_expires_at = None
+                    job.lease_token = None
                     job.touch()
                     continue
                 if job.status != ResearchJobStatus.QUEUED and not expired:
@@ -120,25 +124,81 @@ class InMemoryDatabase(Database):
                     job.status = ResearchJobStatus.FAILED
                     job.error = job.error or "Maximum worker attempts exceeded."
                     job.finished_at = now
+                    job.worker_id = None
+                    job.lease_expires_at = None
+                    job.lease_token = None
                     job.touch()
                     continue
                 job.status = ResearchJobStatus.RUNNING
                 job.attempts += 1
                 job.worker_id = worker_id
                 job.lease_expires_at = now + timedelta(seconds=lease_seconds)
+                job.lease_token = uuid.uuid4().hex
                 job.started_at = job.started_at or now
                 job.error = None
                 job.touch()
-                return job
+                return job.model_copy(deep=True)
         return None
 
-    def renew_research_job_lease(self, job_id: str, worker_id: str, lease_seconds: int = 3600) -> bool:
+    def renew_research_job_lease(
+        self, job_id: str, worker_id: str, lease_token: str, lease_seconds: int = 3600
+    ) -> bool:
+        now = datetime.now(timezone.utc)
         with self._job_lock:
             job = self.research_jobs.get(job_id)
-            if job is None or job.worker_id != worker_id or job.status not in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}:
+            if (
+                job is None
+                or job.worker_id != worker_id
+                or job.lease_token != lease_token
+                or job.status not in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}
+                or job.lease_expires_at is None
+                or job.lease_expires_at <= now
+            ):
                 return False
-            job.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
+            job.lease_expires_at = now + timedelta(seconds=lease_seconds)
             job.touch()
+            return True
+
+    def is_research_job_lease_owner(self, job_id: str, worker_id: str, lease_token: str) -> bool:
+        now = datetime.now(timezone.utc)
+        with self._job_lock:
+            job = self.research_jobs.get(job_id)
+            return bool(
+                job is not None
+                and job.worker_id == worker_id
+                and job.lease_token == lease_token
+                and job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}
+                and job.lease_expires_at is not None
+                and job.lease_expires_at > now
+            )
+
+    def save_research_job_if_lease_owner(
+        self, job: ResearchJob, worker_id: str, lease_token: str
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        with self._job_lock:
+            current = self.research_jobs.get(job.job_id)
+            if (
+                current is None
+                or current.worker_id != worker_id
+                or current.lease_token != lease_token
+                or current.status not in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}
+                or current.lease_expires_at is None
+                or current.lease_expires_at <= now
+            ):
+                return False
+            if job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}:
+                if job.worker_id != worker_id or job.lease_token != lease_token:
+                    return False
+                # Preserve the latest heartbeat extension; a stale job snapshot
+                # must never shorten the currently-held lease.
+                job.worker_id = current.worker_id
+                job.lease_token = current.lease_token
+                job.lease_expires_at = current.lease_expires_at
+                if current.status == ResearchJobStatus.CANCEL_REQUESTED and job.status == ResearchJobStatus.RUNNING:
+                    job.status = ResearchJobStatus.CANCEL_REQUESTED
+            job.touch()
+            self.research_jobs[job.job_id] = job.model_copy(deep=True)
             return True
 
     def get_research_job_queue_stats(self) -> ResearchJobQueueStats:
@@ -181,10 +241,10 @@ class InMemoryDatabase(Database):
             )
 
     def save_research_task(self, task: ResearchTask) -> None:
-        self.research_tasks[task.task_id] = task
+        self.research_tasks[task.task_id] = task.model_copy(deep=True)
 
     def save_research_run(self, run: ResearchRun) -> None:
-        self.research_runs[run.run_id] = run
+        self.research_runs[run.run_id] = run.model_copy(deep=True)
 
     def save_tool(self, tool: ToolDefinition) -> None:
         self.tools[tool.tool_id] = tool
@@ -227,10 +287,12 @@ class InMemoryDatabase(Database):
         return list(self.research_memory.values())
 
     def get_research_task(self, task_id: str) -> ResearchTask | None:
-        return self.research_tasks.get(task_id)
+        task = self.research_tasks.get(task_id)
+        return task.model_copy(deep=True) if task is not None else None
 
     def get_research_run(self, run_id: str) -> ResearchRun | None:
-        return self.research_runs.get(run_id)
+        run = self.research_runs.get(run_id)
+        return run.model_copy(deep=True) if run is not None else None
 
     def get_tool(self, tool_id: str) -> ToolDefinition | None:
         return self.tools.get(tool_id)

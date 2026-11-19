@@ -37,23 +37,31 @@ class ResearchWorker:
         job = self.database.claim_next_research_job(self.worker_id, self.lease_seconds)
         if job is None:
             return None
+        lease_token = job.lease_token
+        if not lease_token:
+            return self.database.get_research_job(job.job_id)
+
         attempt = self._begin_attempt(job)
+        outcome: ResearchJobStatus | None = None
         try:
-            self._execute(job)
+            outcome = self._execute(job, lease_token)
         except Exception as exc:
-            self._finish_failed(job, str(exc))
+            outcome = self._finish_failed(job, lease_token, str(exc))
         finally:
-            latest = self.database.get_research_job(job.job_id) or job
-            if latest.status == ResearchJobStatus.SUCCEEDED:
+            if outcome is None:
+                attempt_status = ResearchJobAttemptStatus.LEASE_EXPIRED
+                attempt_error = "Worker lease ownership was lost before the attempt completed."
+            elif outcome == ResearchJobStatus.SUCCEEDED:
                 attempt_status = ResearchJobAttemptStatus.SUCCEEDED
-            elif latest.status == ResearchJobStatus.CANCELLED:
+                attempt_error = None
+            elif outcome == ResearchJobStatus.CANCELLED:
                 attempt_status = ResearchJobAttemptStatus.CANCELLED
+                attempt_error = None
             else:
                 attempt_status = ResearchJobAttemptStatus.FAILED
-            attempt.finish(
-                attempt_status,
-                latest.error if attempt_status == ResearchJobAttemptStatus.FAILED else None,
-            )
+                latest = self.database.get_research_job(job.job_id)
+                attempt_error = latest.error if latest is not None else None
+            attempt.finish(attempt_status, attempt_error)
             self.database.save_research_job_attempt(attempt)
         return self.database.get_research_job(job.job_id)
 
@@ -77,11 +85,22 @@ class ResearchWorker:
         self.database.save_research_job_attempt(attempt)
         return attempt
 
-    def _execute(self, job: ResearchJob) -> None:
+    def _owns_lease(self, job: ResearchJob, lease_token: str) -> bool:
+        return self.database.is_research_job_lease_owner(
+            job.job_id, self.worker_id, lease_token
+        )
+
+    def _save_owned(self, job: ResearchJob, lease_token: str) -> bool:
+        return self.database.save_research_job_if_lease_owner(
+            job, self.worker_id, lease_token
+        )
+
+    def _execute(self, job: ResearchJob, lease_token: str) -> ResearchJobStatus | None:
+        if not self._owns_lease(job, lease_token):
+            return None
         run = self.database.get_research_run(job.run_id)
         if run is None:
-            self._finish_failed(job, "Research run was not found.")
-            return
+            return self._finish_failed(job, lease_token, "Research run was not found.")
 
         if run.status == ResearchRunStatus.COMPLETED:
             latest_job = self.database.get_research_job(job.job_id) or job
@@ -92,18 +111,20 @@ class ResearchWorker:
             latest_job.finished_at = datetime.now(timezone.utc)
             latest_job.worker_id = None
             latest_job.lease_expires_at = None
-            self.database.save_research_job(latest_job)
-            return
+            latest_job.lease_token = None
+            return ResearchJobStatus.SUCCEEDED if self._save_owned(latest_job, lease_token) else None
         if run.status == ResearchRunStatus.CANCELLED:
             latest_job = self.database.get_research_job(job.job_id) or job
             latest_job.status = ResearchJobStatus.CANCELLED
             latest_job.finished_at = datetime.now(timezone.utc)
             latest_job.worker_id = None
             latest_job.lease_expires_at = None
-            self.database.save_research_job(latest_job)
-            return
+            latest_job.lease_token = None
+            return ResearchJobStatus.CANCELLED if self._save_owned(latest_job, lease_token) else None
 
         if run.status == ResearchRunStatus.FAILED:
+            if not self._owns_lease(job, lease_token):
+                return None
             run.status = ResearchRunStatus.PLANNED
             run.failed_tasks = []
             self.database.save_research_run(run)
@@ -111,35 +132,56 @@ class ResearchWorker:
         tasks = [self.database.get_research_task(task_id) for task_id in run.tasks]
         resolved_tasks = [task for task in tasks if task is not None]
         if not resolved_tasks or len(resolved_tasks) != len(run.tasks):
-            self._finish_failed(job, "Research run task graph is missing or incomplete.")
-            return
+            return self._finish_failed(job, lease_token, "Research run task graph is missing or incomplete.")
 
         # A worker may have died after persisting a task as running. Re-queue
         # that task for at-least-once recovery; completed tasks remain untouched.
         for task in resolved_tasks:
+            if not self._owns_lease(job, lease_token):
+                return None
             if task.status in {"running", "failed", "blocked"}:
                 task.status = "pending"
                 self.database.save_research_task(task)
 
+        lease_lost = Event()
+
         def cancellation_requested() -> bool:
+            if lease_lost.is_set() or not self._owns_lease(job, lease_token):
+                lease_lost.set()
+                return True
             latest = self.database.get_research_job(job.job_id)
             return latest is None or latest.status == ResearchJobStatus.CANCEL_REQUESTED
 
         def update_progress(completed: int, total: int) -> None:
+            if cancellation_requested():
+                return
             latest = self.database.get_research_job(job.job_id)
             if latest is None or latest.status == ResearchJobStatus.CANCEL_REQUESTED:
                 return
             latest.completed_tasks = completed
             latest.total_tasks = total
             latest.progress = round((completed / total) * 100, 2) if total else 0.0
-            self.database.save_research_job(latest)
-            self.database.renew_research_job_lease(job.job_id, self.worker_id, self.lease_seconds)
+            if not self._save_owned(latest, lease_token):
+                lease_lost.set()
+                return
+            if not self.database.renew_research_job_lease(
+                job.job_id, self.worker_id, lease_token, self.lease_seconds
+            ):
+                lease_lost.set()
 
         heartbeat_stop = Event()
 
         def heartbeat() -> None:
             while not heartbeat_stop.wait(max(10, self.lease_seconds // 3)):
-                if not self.database.renew_research_job_lease(job.job_id, self.worker_id, self.lease_seconds):
+                try:
+                    renewed = self.database.renew_research_job_lease(
+                        job.job_id, self.worker_id, lease_token, self.lease_seconds
+                    )
+                except Exception:
+                    lease_lost.set()
+                    return
+                if not renewed:
+                    lease_lost.set()
                     return
 
         heartbeat_thread = Thread(target=heartbeat, daemon=True)
@@ -168,27 +210,30 @@ class ResearchWorker:
             )
             executor.run()
         except ExecutionCancelled:
+            heartbeat_stop.set()
+            heartbeat_thread.join(timeout=2)
+            if not self._owns_lease(job, lease_token):
+                return None
             latest_run = self.database.get_research_run(job.run_id)
             if latest_run is not None and latest_run.status == ResearchRunStatus.RUNNING:
                 latest_run.transition_to(ResearchRunStatus.CANCELLED)
                 self.database.save_research_run(latest_run)
             latest_job = self.database.get_research_job(job.job_id) or job
-            heartbeat_stop.set()
-            heartbeat_thread.join(timeout=2)
             latest_job.status = ResearchJobStatus.CANCELLED
             latest_job.finished_at = datetime.now(timezone.utc)
             latest_job.lease_expires_at = None
             latest_job.worker_id = None
-            self.database.save_research_job(latest_job)
-            return
+            latest_job.lease_token = None
+            return ResearchJobStatus.CANCELLED if self._save_owned(latest_job, lease_token) else None
         except Exception as exc:
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=2)
-            self._finish_failed(job, str(exc))
-            return
+            return self._finish_failed(job, lease_token, str(exc))
 
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=2)
+        if not self._owns_lease(job, lease_token):
+            return None
         latest_job = self.database.get_research_job(job.job_id) or job
         latest_run = self.database.get_research_run(job.run_id)
         if latest_job.status == ResearchJobStatus.CANCEL_REQUESTED and (
@@ -203,13 +248,19 @@ class ResearchWorker:
         latest_job.finished_at = datetime.now(timezone.utc)
         latest_job.lease_expires_at = None
         latest_job.worker_id = None
-        self.database.save_research_job(latest_job)
+        latest_job.lease_token = None
+        return latest_job.status if self._save_owned(latest_job, lease_token) else None
 
-    def _finish_failed(self, job: ResearchJob, message: str) -> None:
+    def _finish_failed(
+        self, job: ResearchJob, lease_token: str, message: str
+    ) -> ResearchJobStatus | None:
+        if not self._owns_lease(job, lease_token):
+            return None
         latest = self.database.get_research_job(job.job_id) or job
         latest.error = (message or "Unknown worker error.")[:2000]
         latest.lease_expires_at = None
         latest.worker_id = None
+        latest.lease_token = None
         if latest.status == ResearchJobStatus.CANCEL_REQUESTED:
             run = self.database.get_research_run(job.run_id)
             if run is not None and run.status != ResearchRunStatus.COMPLETED:
@@ -224,7 +275,7 @@ class ResearchWorker:
                 else ResearchJobStatus.FAILED
             )
             latest.finished_at = None if latest.status == ResearchJobStatus.QUEUED else datetime.now(timezone.utc)
-        self.database.save_research_job(latest)
+        return latest.status if self._save_owned(latest, lease_token) else None
 
     def run_forever(self, poll_interval: float = 2.0, stop_event: Event | None = None) -> None:
         stop = stop_event or Event()

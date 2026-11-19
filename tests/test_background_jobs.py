@@ -2,6 +2,9 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
+import pytest
+
+from agents.task_executor import ExecutionCancelled, TaskExecutor
 
 from api.app import create_app
 from storage.database.memory import InMemoryDatabase
@@ -9,6 +12,7 @@ from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt, ResearchJobAttemptStatus
 from storage.models.research import ResearchPlan, ResearchRun, ResearchRunStatus, ResearchTask
 from workers.research_worker import ResearchWorker
+from tools.registry import ToolRegistry
 
 
 class FakeDirector:
@@ -414,3 +418,138 @@ def test_queue_stats_endpoint_reflects_persisted_jobs():
     assert response.json()["total"] == 1
     assert response.json()["running"] == 1
     assert response.json()["active_workers"] == 1
+
+
+def test_claim_assigns_a_new_fencing_token_even_for_the_same_worker_id():
+    database = InMemoryDatabase()
+    database.save_research_job(ResearchJob(job_id="job-fence", run_id="run-fence"))
+
+    first = database.claim_next_research_job("reused-worker-id", lease_seconds=60)
+    first_token = first.lease_token
+    first.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    database.save_research_job(first)
+
+    second = database.claim_next_research_job("reused-worker-id", lease_seconds=60)
+
+    assert second is not None
+    assert second.lease_token
+    assert second.lease_token != first_token
+
+
+def test_expired_lease_owner_cannot_renew_or_write_before_reclaim():
+    database = InMemoryDatabase()
+    database.save_research_job(ResearchJob(job_id="job-expired-fence", run_id="run-expired-fence"))
+    claimed = database.claim_next_research_job("worker-expired", lease_seconds=60)
+    token = claimed.lease_token
+    claimed.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    database.save_research_job(claimed)
+
+    assert not database.is_research_job_lease_owner(claimed.job_id, "worker-expired", token)
+    assert not database.renew_research_job_lease(claimed.job_id, "worker-expired", token, 60)
+    claimed.progress = 55.0
+    assert not database.save_research_job_if_lease_owner(claimed, "worker-expired", token)
+    assert database.get_research_job(claimed.job_id).progress == 0.0
+
+
+def test_stale_worker_cannot_mutate_job_after_replacement_claim():
+    database = InMemoryDatabase()
+    database.save_research_job(ResearchJob(job_id="job-reclaimed", run_id="run-reclaimed"))
+    stale = database.claim_next_research_job("same-worker-id", lease_seconds=60)
+    stale_token = stale.lease_token
+    stale.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    database.save_research_job(stale)
+
+    current = database.claim_next_research_job("same-worker-id", lease_seconds=60)
+    assert current.lease_token != stale_token
+
+    stale.progress = 99.0
+    assert not database.renew_research_job_lease(stale.job_id, "same-worker-id", stale_token, 60)
+    assert not database.save_research_job_if_lease_owner(stale, "same-worker-id", stale_token)
+    persisted = database.get_research_job(stale.job_id)
+    assert persisted.lease_token == current.lease_token
+    assert persisted.progress == 0.0
+
+
+def test_current_lease_owner_can_renew_and_persist_fenced_updates():
+    database = InMemoryDatabase()
+    database.save_research_job(ResearchJob(job_id="job-current-fence", run_id="run-current-fence"))
+    claimed = database.claim_next_research_job("current-worker", lease_seconds=60)
+
+    assert database.is_research_job_lease_owner(
+        claimed.job_id, "current-worker", claimed.lease_token
+    )
+    assert database.renew_research_job_lease(
+        claimed.job_id, "current-worker", claimed.lease_token, 60
+    )
+    renewed_expiry = database.get_research_job(claimed.job_id).lease_expires_at
+    claimed.progress = 25.0
+    assert database.save_research_job_if_lease_owner(
+        claimed, "current-worker", claimed.lease_token
+    )
+    persisted = database.get_research_job(claimed.job_id)
+    assert persisted.progress == 25.0
+    assert persisted.lease_expires_at == renewed_expiry
+
+
+def test_task_executor_refuses_to_start_when_worker_lease_is_lost():
+    database = InMemoryDatabase()
+    run = ResearchRun(run_id="run-lost-lease", research_question="Lease fencing")
+    run.transition_to(ResearchRunStatus.PLANNED)
+    database.save_research_run(run)
+    task = ResearchTask(task_id="task-lost-lease", description="Do not start", task_type="test")
+    database.save_research_task(task)
+    executor = TaskExecutor(
+        tasks=[task],
+        database=database,
+        run_id=run.run_id,
+        tool_registry=ToolRegistry(),
+        should_cancel=lambda: True,
+    )
+
+    with pytest.raises(ExecutionCancelled, match="lost its active worker lease"):
+        executor.execute_task(task)
+
+    assert database.get_research_task(task.task_id).status == "pending"
+    assert database.get_research_run(run.run_id).status == ResearchRunStatus.PLANNED
+
+    with pytest.raises(ExecutionCancelled):
+        executor.run()
+    assert database.get_research_run(run.run_id).status == ResearchRunStatus.PLANNED
+
+
+def test_stale_worker_failure_transition_cannot_overwrite_replacement_claim():
+    database = InMemoryDatabase()
+    database.save_research_job(ResearchJob(job_id="job-stale-failure", run_id="run-stale-failure"))
+    old_claim = database.claim_next_research_job("reused-worker", lease_seconds=60)
+    old_token = old_claim.lease_token
+    old_claim.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    database.save_research_job(old_claim)
+    replacement = database.claim_next_research_job("reused-worker", lease_seconds=60)
+
+    worker = ResearchWorker(database, worker_id="reused-worker", experiment_adapters={})
+    result = worker._finish_failed(old_claim, old_token, "late failure from stale worker")
+
+    assert result is None
+    persisted = database.get_research_job(old_claim.job_id)
+    assert persisted.status == ResearchJobStatus.RUNNING
+    assert persisted.lease_token == replacement.lease_token
+    assert persisted.error is None
+
+
+def test_worker_progress_write_does_not_erase_concurrent_cancel_request():
+    database = InMemoryDatabase()
+    database.save_research_job(ResearchJob(job_id="job-cancel-race", run_id="run-cancel-race"))
+    claimed = database.claim_next_research_job("cancel-race-worker", lease_seconds=60)
+    worker_snapshot = database.get_research_job(claimed.job_id)
+
+    cancellation = database.get_research_job(claimed.job_id)
+    cancellation.status = ResearchJobStatus.CANCEL_REQUESTED
+    database.save_research_job(cancellation)
+
+    worker_snapshot.progress = 40.0
+    assert database.save_research_job_if_lease_owner(
+        worker_snapshot, "cancel-race-worker", claimed.lease_token
+    )
+    persisted = database.get_research_job(claimed.job_id)
+    assert persisted.status == ResearchJobStatus.CANCEL_REQUESTED
+    assert persisted.progress == 40.0

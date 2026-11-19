@@ -64,7 +64,15 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    def renew_research_job_lease(self, job_id: str, worker_id: str, lease_seconds: int = 3600) -> bool:
+    def renew_research_job_lease(self, job_id: str, worker_id: str, lease_token: str, lease_seconds: int = 3600) -> bool:
+        pass
+
+    @abstractmethod
+    def is_research_job_lease_owner(self, job_id: str, worker_id: str, lease_token: str) -> bool:
+        pass
+
+    @abstractmethod
+    def save_research_job_if_lease_owner(self, job: ResearchJob, worker_id: str, lease_token: str) -> bool:
         pass
 
     @abstractmethod
