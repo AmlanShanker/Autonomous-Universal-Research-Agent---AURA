@@ -52,8 +52,9 @@ def test_completed_checkpoint_skips_task_after_executor_restart():
     )
     resumed = make_executor(database, resumed_task)
 
-    assert resumed_task.status == "completed"
+    assert resumed_task.status == "pending"
     assert resumed.execute_task(resumed_task) is True
+    assert resumed_task.status == "completed"
     assert len(database.list_execution_results_for_run("checkpoint-run")) == persisted_result_count
 
 
