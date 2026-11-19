@@ -512,6 +512,10 @@ def test_task_executor_refuses_to_start_when_worker_lease_is_lost():
     assert database.get_research_task(task.task_id).status == "pending"
     assert database.get_research_run(run.run_id).status == ResearchRunStatus.PLANNED
 
+    with pytest.raises(ExecutionCancelled):
+        executor.run()
+    assert database.get_research_run(run.run_id).status == ResearchRunStatus.PLANNED
+
 
 def test_stale_worker_failure_transition_cannot_overwrite_replacement_claim():
     database = InMemoryDatabase()
