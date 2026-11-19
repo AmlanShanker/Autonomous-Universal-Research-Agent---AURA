@@ -511,3 +511,22 @@ def test_task_executor_refuses_to_start_when_worker_lease_is_lost():
 
     assert database.get_research_task(task.task_id).status == "pending"
     assert database.get_research_run(run.run_id).status == ResearchRunStatus.PLANNED
+
+
+def test_stale_worker_failure_transition_cannot_overwrite_replacement_claim():
+    database = InMemoryDatabase()
+    database.save_research_job(ResearchJob(job_id="job-stale-failure", run_id="run-stale-failure"))
+    old_claim = database.claim_next_research_job("reused-worker", lease_seconds=60)
+    old_token = old_claim.lease_token
+    old_claim.lease_expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+    database.save_research_job(old_claim)
+    replacement = database.claim_next_research_job("reused-worker", lease_seconds=60)
+
+    worker = ResearchWorker(database, worker_id="reused-worker", experiment_adapters={})
+    result = worker._finish_failed(old_claim, old_token, "late failure from stale worker")
+
+    assert result is None
+    persisted = database.get_research_job(old_claim.job_id)
+    assert persisted.status == ResearchJobStatus.RUNNING
+    assert persisted.lease_token == replacement.lease_token
+    assert persisted.error is None
