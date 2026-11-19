@@ -530,3 +530,22 @@ def test_stale_worker_failure_transition_cannot_overwrite_replacement_claim():
     assert persisted.status == ResearchJobStatus.RUNNING
     assert persisted.lease_token == replacement.lease_token
     assert persisted.error is None
+
+
+def test_worker_progress_write_does_not_erase_concurrent_cancel_request():
+    database = InMemoryDatabase()
+    database.save_research_job(ResearchJob(job_id="job-cancel-race", run_id="run-cancel-race"))
+    claimed = database.claim_next_research_job("cancel-race-worker", lease_seconds=60)
+    worker_snapshot = database.get_research_job(claimed.job_id)
+
+    cancellation = database.get_research_job(claimed.job_id)
+    cancellation.status = ResearchJobStatus.CANCEL_REQUESTED
+    database.save_research_job(cancellation)
+
+    worker_snapshot.progress = 40.0
+    assert database.save_research_job_if_lease_owner(
+        worker_snapshot, "cancel-race-worker", claimed.lease_token
+    )
+    persisted = database.get_research_job(claimed.job_id)
+    assert persisted.status == ResearchJobStatus.CANCEL_REQUESTED
+    assert persisted.progress == 40.0
