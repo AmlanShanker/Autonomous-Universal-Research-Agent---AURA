@@ -7,6 +7,7 @@ from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob
 from storage.models.job_attempt import ResearchJobAttempt
+from storage.models.job_stats import ResearchJobQueueStats
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -64,6 +65,10 @@ class Database(ABC):
 
     @abstractmethod
     def renew_research_job_lease(self, job_id: str, worker_id: str, lease_seconds: int = 3600) -> bool:
+        pass
+
+    @abstractmethod
+    def get_research_job_queue_stats(self) -> ResearchJobQueueStats:
         pass
 
     @abstractmethod
