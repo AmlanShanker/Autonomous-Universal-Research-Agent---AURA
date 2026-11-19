@@ -53,6 +53,8 @@ class ExperimentSpec(BaseModel):
     method: str = Field(min_length=1)
     adapter_name: str = Field(min_length=1)
     parameters: dict[str, Any] = Field(default_factory=dict)
+    parameter_version: int = Field(default=1, ge=1)
+    environment: ExperimentEnvironment = Field(default_factory=ExperimentEnvironment)
     success_criteria: list[MetricCriterion] = Field(min_length=1)
     repetitions: int = Field(default=1, ge=1, le=10)
     random_seed: int | None = None
