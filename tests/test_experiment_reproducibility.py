@@ -93,9 +93,9 @@ def test_runner_captures_environment_and_persists_text_artifacts():
 
     assert result.status == "completed"
     assert result.parameter_snapshot_id is not None
-    assert result.environment.python_version
-    assert result.environment.implementation
-    assert result.environment.platform
+    assert result.environment.runtime_python_version
+    assert result.environment.runtime_implementation
+    assert result.environment.runtime_platform
     assert result.environment.adapter_version == "2.1.0"
     assert result.environment.package_versions == {"numpy": "2.0.0"}
     assert len(artifacts) == 1
