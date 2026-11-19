@@ -6,6 +6,7 @@ from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
+from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
@@ -35,7 +36,29 @@ class InMemoryDatabase(Database):
         self.research_jobs: dict[str, ResearchJob] = {}
         self.research_job_attempts: dict[str, ResearchJobAttempt] = {}
         self.task_checkpoints: dict[str, TaskCheckpoint] = {}
+        self.research_sources: dict[str, ResearchSource] = {}
         self._job_lock = Lock()
+
+    def save_research_source(self, source: ResearchSource) -> None:
+        existing = self.get_research_source_by_canonical_id(source.canonical_id)
+        richness = lambda item: sum(bool(value) for value in (
+            item.title if item.title != "Untitled source" else None,
+            item.authors, item.abstract, item.doi, item.arxiv_id,
+            item.publisher, item.publication_year, item.url,
+        ))
+        if existing is None or richness(source) > richness(existing):
+            self.research_sources[source.source_id] = source.model_copy(deep=True)
+
+    def get_research_source(self, source_id: str) -> ResearchSource | None:
+        source = self.research_sources.get(source_id)
+        return source.model_copy(deep=True) if source is not None else None
+
+    def get_research_source_by_canonical_id(self, canonical_id: str) -> ResearchSource | None:
+        source = next((item for item in self.research_sources.values() if item.canonical_id == canonical_id), None)
+        return source.model_copy(deep=True) if source is not None else None
+
+    def list_research_sources(self) -> list[ResearchSource]:
+        return [item.model_copy(deep=True) for item in self.research_sources.values()]
 
     def save_research_report(self, report: ResearchReport) -> None:
         self.research_reports[report.report_id] = report

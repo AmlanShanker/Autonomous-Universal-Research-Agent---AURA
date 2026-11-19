@@ -7,6 +7,7 @@ from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
+from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
@@ -38,6 +39,9 @@ class MongoDatabase(Database):
         self.research_jobs = self.db["research_jobs"]
         self.research_job_attempts = self.db["research_job_attempts"]
         self.task_checkpoints = self.db["task_checkpoints"]
+        self.research_sources = self.db["research_sources"]
+        self.research_sources.create_index("source_id", unique=True)
+        self.research_sources.create_index("canonical_id", unique=True)
         self.task_checkpoints.create_index("checkpoint_id", unique=True)
         self.task_checkpoints.create_index([("run_id", 1), ("task_id", 1)], unique=True)
         self.research_job_attempts.create_index([("job_id", 1), ("attempt_number", 1)], unique=True)
@@ -61,6 +65,40 @@ class MongoDatabase(Database):
             name="one_active_research_job_per_run",
         )
         self.research_jobs.create_index([("status", 1), ("created_at", 1)])
+
+    def save_research_source(self, source: ResearchSource) -> None:
+        existing = self.get_research_source_by_canonical_id(source.canonical_id)
+        richness = lambda item: sum(bool(value) for value in (
+            item.title if item.title != "Untitled source" else None,
+            item.authors, item.abstract, item.doi, item.arxiv_id,
+            item.publisher, item.publication_year, item.url,
+        ))
+        if existing is None or richness(source) > richness(existing):
+            self.research_sources.replace_one(
+                {"canonical_id": source.canonical_id},
+                source.model_dump(mode="json"),
+                upsert=True,
+            )
+
+    def get_research_source(self, source_id: str) -> ResearchSource | None:
+        document = self.research_sources.find_one({"source_id": source_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ResearchSource.model_validate(document)
+
+    def get_research_source_by_canonical_id(self, canonical_id: str) -> ResearchSource | None:
+        document = self.research_sources.find_one({"canonical_id": canonical_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ResearchSource.model_validate(document)
+
+    def list_research_sources(self) -> list[ResearchSource]:
+        return [
+            ResearchSource.model_validate({key: value for key, value in doc.items() if key != "_id"})
+            for doc in self.research_sources.find().sort("canonical_id", 1)
+        ]
 
     def save_research_report(self, report: ResearchReport) -> None:
         self.research_reports.replace_one(

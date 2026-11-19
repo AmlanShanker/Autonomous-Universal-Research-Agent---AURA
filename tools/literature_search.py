@@ -2,6 +2,7 @@ import requests
 import xml.etree.ElementTree as ET
 
 from tools.base import ResearchTool
+from agents.evidence_quality import deduplicate_sources, normalize_source
 
 
 class LiteratureSearchTool(ResearchTool):
@@ -155,9 +156,26 @@ class LiteratureSearchTool(ResearchTool):
                 }
             )
 
+        normalized = deduplicate_sources([
+            normalize_source(item, query=query, provider="arxiv")
+            for item in results
+        ])
+        enriched = [
+            {
+                **item.model_dump(mode="json"),
+                "title": item.title,
+                "authors": item.authors,
+                "abstract": item.abstract,
+                "url": item.url,
+                "publication_year": item.publication_year,
+            }
+            for item in normalized
+        ]
         return {
             "query": query,
             "source": "arXiv",
-            "results": results,
-            "count": len(results),
+            "results": enriched,
+            "count": len(enriched),
+            "raw_count": len(results),
+            "deduplicated_count": len(results) - len(enriched),
         }

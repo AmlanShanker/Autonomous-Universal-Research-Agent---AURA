@@ -15,6 +15,7 @@ from memory.research_memory_retriever import ResearchMemoryRetriever
 from storage.database.base import Database
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
+from agents.evidence_quality import deduplicate_sources, normalize_source
 from storage.models.task_checkpoint import TaskCheckpoint
 from storage.models.experiment import ExperimentDefinition
 from storage.models.research import (
@@ -937,6 +938,13 @@ class TaskExecutor:
                         "authors": cls._bound_analysis_value(record.get("authors", []), max_string_chars=120, max_list_items=6),
                         "abstract": str(record.get("abstract", ""))[:600],
                         "url": str(record.get("url", ""))[:300],
+                        "source_id": str(record.get("source_id", ""))[:64],
+                        "canonical_id": str(record.get("canonical_id", ""))[:500],
+                        "doi": record.get("doi"),
+                        "arxiv_id": record.get("arxiv_id"),
+                        "source_provider": str(record.get("source_provider", ""))[:100],
+                        "credibility_score": record.get("credibility_score"),
+                        "credibility_reasons": cls._bound_analysis_value(record.get("credibility_reasons", []), max_string_chars=200, max_list_items=8),
                     })
                 compact_output = {
                     "query": str(output.get("query", ""))[:300],
@@ -1541,6 +1549,22 @@ Return ONLY one valid JSON object with exactly these top-level fields:
         self.database.save_execution_result(
             execution_result
         )
+
+        # Persist normalized scholarly sources independently of execution history.
+        if tool_name == "literature_search" and isinstance(output, dict):
+            records = output.get("results", [])
+            if isinstance(records, list):
+                sources = deduplicate_sources([
+                    normalize_source(
+                        record,
+                        query=str(output.get("query", "")),
+                        provider=str(output.get("source", "unknown")),
+                    )
+                    for record in records if isinstance(record, dict)
+                ])
+                for source in sources:
+                    self._ensure_active()
+                    self.database.save_research_source(source)
 
         self.context.add_result(
             result_id=execution_result.result_id,
