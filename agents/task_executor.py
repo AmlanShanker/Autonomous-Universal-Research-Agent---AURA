@@ -269,6 +269,10 @@ class TaskExecutor:
 
         return tool_inputs
 
+    def _ensure_active(self) -> None:
+        if self.should_cancel():
+            raise ExecutionCancelled("Research execution lost its active worker lease or was cancelled.")
+
     def _transition_run(
         self,
         new_status: ResearchRunStatus,
@@ -292,6 +296,8 @@ class TaskExecutor:
             new_status
         )
 
+        self._ensure_active()
+
         self.database.save_research_run(
             run
         )
@@ -310,12 +316,15 @@ class TaskExecutor:
         unusable implementation.
         """
 
+        self._ensure_active()
         print(
             f"Executing: {task.task_id} - "
             f"{task.description}"
         )
 
         task.status = "running"
+
+        self._ensure_active()
 
         self.database.save_research_task(
             task
@@ -325,12 +334,15 @@ class TaskExecutor:
             result = self._execute_task_logic(
                 task
             )
+            self._ensure_active()
 
             self.results[
                 task.task_id
             ] = result
 
             task.status = "completed"
+
+            self._ensure_active()
 
             self.database.save_research_task(
                 task
@@ -353,6 +365,8 @@ class TaskExecutor:
                         task.task_id
                     )
 
+                self._ensure_active()
+
                 self.database.save_research_run(
                     run
                 )
@@ -368,6 +382,8 @@ class TaskExecutor:
 
         except CapabilityGapError as exc:
             task.status = "blocked"
+
+            self._ensure_active()
 
             self.database.save_research_task(
                 task
@@ -399,6 +415,8 @@ class TaskExecutor:
         except ToolValidationError as exc:
             task.status = "blocked"
 
+            self._ensure_active()
+
             self.database.save_research_task(
                 task
             )
@@ -428,6 +446,8 @@ class TaskExecutor:
 
         except ToolImplementationError as exc:
             task.status = "blocked"
+
+            self._ensure_active()
 
             self.database.save_research_task(
                 task
@@ -459,6 +479,8 @@ class TaskExecutor:
         except Exception as exc:
             task.status = "failed"
 
+            self._ensure_active()
+
             self.database.save_research_task(
                 task
             )
@@ -475,6 +497,8 @@ class TaskExecutor:
                     run.failed_tasks.append(
                         task.task_id
                     )
+
+                self._ensure_active()
 
                 self.database.save_research_run(
                     run
@@ -617,6 +641,8 @@ class TaskExecutor:
                         generated_tool
                     )
                 )
+
+                self._ensure_active()
 
                 self.database.save_tool(
                     tool_definition
@@ -1097,6 +1123,7 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 "dependency_result_ids": dependency_result_ids,
             },
         )
+        self._ensure_active()
         self.database.save_execution_result(execution_result)
         self.context.add_result(
             result_id=result_id,
@@ -1113,6 +1140,7 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 for finding in analysis.get("findings", []):
                     if isinstance(finding, str) and finding.strip() and finding.strip() not in run.findings:
                         run.findings.append(finding.strip())
+                self._ensure_active()
                 self.database.save_research_run(run)
 
         return {
@@ -1350,6 +1378,8 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 },
             )
 
+            self._ensure_active()
+
             self.database.save_execution_result(
                 failed_result
             )
@@ -1378,6 +1408,8 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 "execution_type": "tool",
             },
         )
+
+        self._ensure_active()
 
         self.database.save_execution_result(
             execution_result
@@ -1437,6 +1469,8 @@ Return ONLY one valid JSON object with exactly these top-level fields:
             run.transition_to(
                 ResearchRunStatus.RUNNING
             )
+
+            self._ensure_active()
 
             self.database.save_research_run(
                 run
@@ -1592,6 +1626,8 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 run.transition_to(
                     ResearchRunStatus.COMPLETED
                 )
+
+                self._ensure_active()
 
                 self.database.save_research_run(
                     run
