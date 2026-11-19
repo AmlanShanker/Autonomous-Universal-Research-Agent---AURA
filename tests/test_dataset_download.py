@@ -15,6 +15,8 @@ class FakeResponse:
         content: bytes,
     ):
         self.content = content
+        self.headers = {}
+        self.status_code = 200
 
     def raise_for_status(self):
         pass
@@ -264,3 +266,40 @@ def test_non_http_url_is_rejected(
             source_url="file:///secret/data.txt",
             destination_path="data.txt",
         )
+
+
+def test_private_ip_and_localhost_sources_are_rejected(tmp_path):
+    tool = DatasetDownloadTool()
+    tool.DOWNLOAD_DIRECTORY = tmp_path
+
+    for url in ("http://127.0.0.1/data", "http://localhost/data", "http://10.0.0.1/data"):
+        with pytest.raises(ValueError, match="public"):
+            tool._validate_url(url)
+
+
+def test_nonstandard_port_is_rejected(tmp_path):
+    tool = DatasetDownloadTool()
+    tool.DOWNLOAD_DIRECTORY = tmp_path
+
+    with pytest.raises(ValueError, match="disallowed port"):
+        tool._validate_url("https://example.com:8443/data")
+
+
+def test_redirect_response_is_rejected_and_partial_file_removed(monkeypatch, tmp_path):
+    response = FakeResponse(b"")
+    response.status_code = 302
+
+    monkeypatch.setattr(
+        "tools.implementations.requests.get",
+        lambda *args, **kwargs: response,
+    )
+    tool = DatasetDownloadTool()
+    tool.DOWNLOAD_DIRECTORY = tmp_path
+
+    with pytest.raises(RuntimeError, match="redirects are not permitted"):
+        tool.execute(
+            source_url="https://example.com/data",
+            destination_path="redirected.bin",
+        )
+
+    assert not (tmp_path / "redirected.bin").exists()
