@@ -88,19 +88,21 @@ class InMemoryDatabase(Database):
                     raise ValueError("This research run already has an active job.")
 
             job.touch()
-            self.research_jobs[job.job_id] = job
+            self.research_jobs[job.job_id] = job.model_copy(deep=True)
 
     def get_research_job(self, job_id: str) -> ResearchJob | None:
         with self._job_lock:
-            return self.research_jobs.get(job_id)
+            job = self.research_jobs.get(job_id)
+            return job.model_copy(deep=True) if job is not None else None
 
     def get_research_job_by_idempotency_key(self, key: str) -> ResearchJob | None:
         with self._job_lock:
-            return next((job for job in self.research_jobs.values() if job.idempotency_key == key), None)
+            job = next((job for job in self.research_jobs.values() if job.idempotency_key == key), None)
+            return job.model_copy(deep=True) if job is not None else None
 
     def list_research_jobs_for_run(self, run_id: str) -> list[ResearchJob]:
         with self._job_lock:
-            return [job for job in self.research_jobs.values() if job.run_id == run_id]
+            return [job.model_copy(deep=True) for job in self.research_jobs.values() if job.run_id == run_id]
 
     def claim_next_research_job(self, worker_id: str, lease_seconds: int = 3600) -> ResearchJob | None:
         now = datetime.now(timezone.utc)
@@ -135,7 +137,7 @@ class InMemoryDatabase(Database):
                 job.started_at = job.started_at or now
                 job.error = None
                 job.touch()
-                return job
+                return job.model_copy(deep=True)
         return None
 
     def renew_research_job_lease(
@@ -186,7 +188,7 @@ class InMemoryDatabase(Database):
             ):
                 return False
             job.touch()
-            self.research_jobs[job.job_id] = job
+            self.research_jobs[job.job_id] = job.model_copy(deep=True)
             return True
 
     def get_research_job_queue_stats(self) -> ResearchJobQueueStats:
