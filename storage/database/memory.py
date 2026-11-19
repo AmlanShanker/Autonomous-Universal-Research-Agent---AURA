@@ -39,6 +39,22 @@ class InMemoryDatabase(Database):
         self.research_sources: dict[str, ResearchSource] = {}
         self._job_lock = Lock()
 
+    def save_research_source(self, source: ResearchSource) -> None:
+        existing = self.get_research_source_by_canonical_id(source.canonical_id)
+        if existing is None or len(source.model_dump(exclude_none=True)) > len(existing.model_dump(exclude_none=True)):
+            self.research_sources[source.source_id] = source.model_copy(deep=True)
+
+    def get_research_source(self, source_id: str) -> ResearchSource | None:
+        source = self.research_sources.get(source_id)
+        return source.model_copy(deep=True) if source is not None else None
+
+    def get_research_source_by_canonical_id(self, canonical_id: str) -> ResearchSource | None:
+        source = next((item for item in self.research_sources.values() if item.canonical_id == canonical_id), None)
+        return source.model_copy(deep=True) if source is not None else None
+
+    def list_research_sources(self) -> list[ResearchSource]:
+        return [item.model_copy(deep=True) for item in self.research_sources.values()]
+
     def save_research_report(self, report: ResearchReport) -> None:
         self.research_reports[report.report_id] = report
 
