@@ -67,3 +67,25 @@ def test_execution_sandbox_rejects_non_json_and_non_finite_values():
 def test_execution_sandbox_rejects_invalid_resource_policies():
     with pytest.raises(ValueError, match="must be positive"):
         ToolExecutionPolicy(max_concurrent_executions=0)
+
+
+def test_execution_sandbox_rejects_when_concurrency_capacity_is_exhausted():
+    policy = ToolExecutionPolicy(
+        max_concurrent_executions=1,
+        admission_timeout_seconds=0.01,
+    )
+    sandbox = ToolExecutionSandbox(policy)
+    sandbox._slots.acquire()
+    try:
+        with pytest.raises(TimeoutError, match="capacity is exhausted"):
+            sandbox.execute(FakeTool())
+    finally:
+        sandbox._slots.release()
+
+
+def test_execution_sandbox_rejects_non_object_output():
+    sandbox = ToolExecutionSandbox()
+    tool = FakeTool(["not", "an", "object"])
+
+    with pytest.raises(ValueError, match="JSON object"):
+        sandbox.execute(tool)
