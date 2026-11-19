@@ -5,7 +5,7 @@ from urllib.parse import urlparse, urlunparse
 from storage.models.evidence import ResearchSource
 
 
-_DOI_RE = re.compile(r"(?:https?://(?:dx\.)?doi\.org/|doi:\s*)(10\.\d{4,9}/[^\s]+)", re.I)
+_DOI_RE = re.compile(r"(?:https?://(?:dx\.)?doi\.org/|doi:\s*)?(10\.\d{4,9}/[^\s]+)", re.I)
 _ARXIV_RE = re.compile(r"arxiv\.org/(?:abs|pdf)/([\w.\-/]+)", re.I)
 
 
