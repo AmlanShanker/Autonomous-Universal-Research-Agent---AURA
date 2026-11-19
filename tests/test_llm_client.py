@@ -188,10 +188,14 @@ def test_configures_groq_fallback_for_adaption_primary(monkeypatch):
     openai_client.assert_any_call(
         api_key="test-adaption-key",
         base_url="https://api.prod.adaptionlabs.ai/api/v1",
+        timeout=30.0,
+        max_retries=0,
     )
     openai_client.assert_any_call(
         api_key="test-groq-key",
         base_url="https://api.groq.com/openai/v1",
+        timeout=30.0,
+        max_retries=0,
     )
 
 
