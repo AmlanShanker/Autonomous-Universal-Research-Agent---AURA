@@ -187,6 +187,14 @@ class InMemoryDatabase(Database):
                 or current.lease_expires_at <= now
             ):
                 return False
+            if job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}:
+                if job.worker_id != worker_id or job.lease_token != lease_token:
+                    return False
+                # Preserve the latest heartbeat extension; a stale job snapshot
+                # must never shorten the currently-held lease.
+                job.worker_id = current.worker_id
+                job.lease_token = current.lease_token
+                job.lease_expires_at = current.lease_expires_at
             job.touch()
             self.research_jobs[job.job_id] = job.model_copy(deep=True)
             return True
