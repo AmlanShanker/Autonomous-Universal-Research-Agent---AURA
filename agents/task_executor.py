@@ -1287,6 +1287,9 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                 "passed": result.passed,
                 "error": result.error,
                 "outputs": result.outputs,
+                "parameter_snapshot_id": result.parameter_snapshot_id,
+                "environment": result.environment.model_dump(mode="json"),
+                "artifact_ids": result.artifact_ids,
             }
             metadata = {
                 **result.metadata,
