@@ -176,9 +176,15 @@ def test_configures_groq_fallback_for_adaption_primary(monkeypatch):
     assert client.fallback_provider == "groq"
     assert client.fallback_model == "openai/gpt-oss-120b"
     assert client._fallback_base_url == "https://api.groq.com/openai/v1"
-    openai_client.assert_called_once_with(
+    assert client.fallback_client is not None
+    assert openai_client.call_count == 2
+    openai_client.assert_any_call(
         api_key="test-adaption-key",
         base_url="https://api.prod.adaptionlabs.ai/api/v1",
+    )
+    openai_client.assert_any_call(
+        api_key="test-groq-key",
+        base_url="https://api.groq.com/openai/v1",
     )
 
 
@@ -196,7 +202,9 @@ def test_configures_adaption_fallback_for_groq_primary(monkeypatch):
 
     assert client.fallback_provider == "adaption"
     assert client.fallback_model == "qwen3.5-397b"
-    assert client._fallback_base_url == "https://api.prod.adaptionlabs.ai/api/v1"\n    assert client.fallback_client is not None
+    assert client._fallback_base_url == "https://api.prod.adaptionlabs.ai/api/v1"
+    assert client.fallback_client is not None
+    assert client.fallback_client is not None
 
 
 def test_rejects_same_primary_and_fallback_provider(monkeypatch):
