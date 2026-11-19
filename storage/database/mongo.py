@@ -233,12 +233,33 @@ class MongoDatabase(Database):
                 return False
         job.touch()
         update_fields = job.model_dump()
-        if job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}:
+        active_statuses = {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}
+        if job.status in active_statuses:
             # Keep the database's latest heartbeat values rather than replacing
             # them with an older lease timestamp from this worker's snapshot.
             update_fields.pop("worker_id", None)
             update_fields.pop("lease_token", None)
             update_fields.pop("lease_expires_at", None)
+            # A progress snapshot read before an API cancellation must not
+            # change CANCEL_REQUESTED back to RUNNING.
+            if job.status == ResearchJobStatus.RUNNING:
+                update_fields["status"] = {
+                    "$cond": [
+                        {"$eq": ["$status", ResearchJobStatus.CANCEL_REQUESTED.value]},
+                        ResearchJobStatus.CANCEL_REQUESTED.value,
+                        ResearchJobStatus.RUNNING.value,
+                    ]
+                }
+            pipeline_fields = {
+                key: {"$literal": value}
+                for key, value in update_fields.items()
+                if key != "status"
+            }
+            if "status" in update_fields:
+                pipeline_fields["status"] = update_fields["status"]
+            update = [{"$set": pipeline_fields}]
+        else:
+            update = {"$set": update_fields}
         result = self.research_jobs.update_one(
             {
                 "job_id": job.job_id,
@@ -247,7 +268,7 @@ class MongoDatabase(Database):
                 "status": {"$in": [ResearchJobStatus.RUNNING.value, ResearchJobStatus.CANCEL_REQUESTED.value]},
                 "lease_expires_at": {"$gt": now},
             },
-            {"$set": update_fields},
+            update,
         )
         return result.matched_count == 1
 
