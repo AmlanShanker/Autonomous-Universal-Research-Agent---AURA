@@ -1,7 +1,13 @@
 import os
 
 from dotenv import load_dotenv
-from openai import OpenAI
+from openai import (
+    APIConnectionError,
+    APITimeoutError,
+    InternalServerError,
+    OpenAI,
+    RateLimitError,
+)
 
 
 class LLMClient:
@@ -12,9 +18,10 @@ class LLMClient:
     - Groq (default)
     - Adaption Labs
 
-    Select the primary provider with LLM_PROVIDER. An optional, distinct
-    provider can be configured with LLM_FALLBACK_PROVIDER. Fallback execution
-    is handled separately; this class validates and stores its configuration.
+    An optional, distinct provider can be configured with
+    LLM_FALLBACK_PROVIDER. A single fallback attempt is made only for
+    transient provider/API failures; request and configuration errors are
+    returned to the caller without switching providers.
     """
 
     PROVIDERS = {
@@ -32,6 +39,13 @@ class LLMClient:
         },
     }
 
+    FALLBACK_ELIGIBLE_ERRORS = (
+        APIConnectionError,
+        APITimeoutError,
+        RateLimitError,
+        InternalServerError,
+    )
+
     def __init__(self):
         load_dotenv()
 
@@ -47,6 +61,7 @@ class LLMClient:
 
         self.fallback_provider = None
         self.fallback_model = None
+        self.fallback_client = None
         self._fallback_api_key = None
         self._fallback_base_url = None
         self._load_fallback_configuration()
@@ -107,26 +122,38 @@ class LLMClient:
         )
         self.fallback_provider = fallback_provider
         self._fallback_base_url = fallback_config["base_url"]
-
-    def generate(self, prompt: str) -> str:
-        """
-        Send a prompt to the configured primary provider and return its response.
-        """
-
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": prompt,
-                }
-            ],
+        self.fallback_client = OpenAI(
+            api_key=self._fallback_api_key,
+            base_url=self._fallback_base_url,
         )
 
+    @staticmethod
+    def _response_content(response, provider: str) -> str:
         content = response.choices[0].message.content
         if content is None:
             raise RuntimeError(
-                f"The {self.provider} provider returned an empty response."
+                f"The {provider} provider returned an empty response."
             )
-
         return content
+
+    @staticmethod
+    def _messages(prompt: str) -> list[dict[str, str]]:
+        return [{"role": "user", "content": prompt}]
+
+    def generate(self, prompt: str) -> str:
+        """Generate with the primary provider, falling back once if eligible."""
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=self._messages(prompt),
+            )
+        except self.FALLBACK_ELIGIBLE_ERRORS:
+            if self.fallback_client is None:
+                raise
+            response = self.fallback_client.chat.completions.create(
+                model=self.fallback_model,
+                messages=self._messages(prompt),
+            )
+            return self._response_content(response, self.fallback_provider)
+
+        return self._response_content(response, self.provider)
