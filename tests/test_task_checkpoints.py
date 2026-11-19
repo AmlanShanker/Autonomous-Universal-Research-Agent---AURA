@@ -93,4 +93,4 @@ def test_checkpoint_state_is_updated_for_each_task_attempt():
 
     assert checkpoint.status == "completed"
     assert checkpoint.input_fingerprint == executor._task_fingerprint(task)
-    assert checkpoint.result["task_result"]["task_id"] == "task-1"
+    assert checkpoint.result["task_id"] == "task-1"
