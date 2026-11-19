@@ -1,3 +1,4 @@
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
@@ -237,3 +238,82 @@ def test_job_attempt_model_rejects_invalid_finish_transition():
 
     with pytest.raises(ValueError, match="Only running attempts"):
         attempt.finish(ResearchJobAttemptStatus.FAILED)
+
+
+def test_database_rejects_multiple_active_jobs_for_one_run():
+    database = InMemoryDatabase()
+    first = ResearchJob(job_id="job-active-1", run_id="run-active")
+    second = ResearchJob(job_id="job-active-2", run_id="run-active")
+    database.save_research_job(first)
+
+    import pytest
+
+    with pytest.raises(ValueError, match="already has an active job"):
+        database.save_research_job(second)
+
+    assert [job.job_id for job in database.list_research_jobs_for_run("run-active")] == [
+        "job-active-1"
+    ]
+
+
+def test_database_releases_active_run_slot_after_job_finishes():
+    database = InMemoryDatabase()
+    first = ResearchJob(job_id="job-finished", run_id="run-reusable")
+    database.save_research_job(first)
+    first.status = ResearchJobStatus.SUCCEEDED
+    database.save_research_job(first)
+
+    second = ResearchJob(job_id="job-next", run_id="run-reusable")
+    database.save_research_job(second)
+
+    assert database.get_research_job(second.job_id) is not None
+
+
+def test_database_enforces_idempotency_key_uniqueness_across_runs():
+    database = InMemoryDatabase()
+    database.save_research_job(
+        ResearchJob(job_id="job-key-1", run_id="run-key-1", idempotency_key="shared-key")
+    )
+
+    import pytest
+
+    with pytest.raises(ValueError, match="Idempotency key"):
+        database.save_research_job(
+            ResearchJob(job_id="job-key-2", run_id="run-key-2", idempotency_key="shared-key")
+        )
+
+
+def test_concurrent_job_creation_allows_only_one_active_job_per_run():
+    database = InMemoryDatabase()
+
+    def create_job(index):
+        job = ResearchJob(job_id=f"concurrent-job-{index}", run_id="concurrent-run")
+        try:
+            database.save_research_job(job)
+            return True
+        except ValueError:
+            return False
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        outcomes = list(executor.map(create_job, range(8)))
+
+    assert sum(outcomes) == 1
+    assert len(database.list_research_jobs_for_run("concurrent-run")) == 1
+
+
+def test_enqueue_idempotency_key_conflict_across_runs_returns_conflict():
+    client, _ = build_client()
+    first_run = create_run(client)
+    first = client.post(
+        f"/research/runs/{first_run}/jobs",
+        headers={"Idempotency-Key": "globally-unique-request"},
+    )
+    assert first.status_code == 202
+
+    second_run = create_run(client)
+    second = client.post(
+        f"/research/runs/{second_run}/jobs",
+        headers={"Idempotency-Key": "globally-unique-request"},
+    )
+
+    assert second.status_code == 409
