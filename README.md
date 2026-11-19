@@ -43,7 +43,9 @@ The interactive API documentation is available at `http://127.0.0.1:8000/docs`.
 - Adaption Labs requires `ADAPTION_API_KEY` and `ADAPTION_MODEL`.
 - Optionally set `LLM_FALLBACK_PROVIDER` to the other supported provider (`groq` or `adaption`). It must be different from `LLM_PROVIDER` and requires its own API key and model configuration.
 - Leave `LLM_FALLBACK_PROVIDER` blank or unset to disable fallback configuration.
-- When a fallback provider is configured, AURA makes one fallback attempt after a primary-provider connection failure, timeout, rate limit, or server error. Invalid requests and other non-transient errors do not trigger fallback.
+- Transient connection failures, timeouts, rate limits, and server errors are retried up to `LLM_RETRY_ATTEMPTS` times per provider (default `2`) with exponential backoff controlled by `LLM_RETRY_BACKOFF_SECONDS` (default `0.5` seconds). Set retries to `0` to disable them. The OpenAI SDK's internal retries are disabled so this limit remains predictable.
+- `LLM_TIMEOUT_SECONDS` sets the request timeout for both providers (default `30` seconds; minimum `0.1`).
+- After primary retries are exhausted, a configured fallback provider receives its own bounded retry budget. If both providers fail, `LLMFallbackError` retains both original exceptions as `primary_error` and `fallback_error`; its message contains provider names and exception types, not credential values.
 - Both providers use the existing OpenAI-compatible client; provider selection does not require changing agent code.
 - Copy `.env.example` to `.env` as a starting point and fill in credentials locally.
 - The API uses an in-memory database by default.

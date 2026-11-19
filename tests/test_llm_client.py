@@ -5,13 +5,16 @@ import pytest
 
 from openai import APIConnectionError, BadRequestError
 
-from agents.llm_client import LLMClient
+from agents.llm_client import LLMClient, LLMFallbackError
 
 
 def isolate_environment(monkeypatch):
     # Do not let a developer's local .env file leak into configuration tests.
     monkeypatch.setattr("agents.llm_client.load_dotenv", lambda: None)
     monkeypatch.delenv("LLM_FALLBACK_PROVIDER", raising=False)
+    # Legacy fallback tests verify a single primary attempt; retry behavior is
+    # exercised explicitly by tests that set LLM_RETRY_ATTEMPTS.
+    monkeypatch.setenv("LLM_RETRY_ATTEMPTS", "0")
 
 
 def test_defaults_to_groq_for_backward_compatibility(monkeypatch):
@@ -32,6 +35,8 @@ def test_defaults_to_groq_for_backward_compatibility(monkeypatch):
     openai_client.assert_called_once_with(
         api_key="test-groq-key",
         base_url="https://api.groq.com/openai/v1",
+        timeout=30.0,
+        max_retries=0,
     )
 
 
@@ -64,6 +69,8 @@ def test_configures_adaption_provider(monkeypatch):
     openai_client.assert_called_once_with(
         api_key="test-adaption-key",
         base_url="https://api.prod.adaptionlabs.ai/api/v1",
+        timeout=30.0,
+        max_retries=0,
     )
 
 
@@ -181,10 +188,14 @@ def test_configures_groq_fallback_for_adaption_primary(monkeypatch):
     openai_client.assert_any_call(
         api_key="test-adaption-key",
         base_url="https://api.prod.adaptionlabs.ai/api/v1",
+        timeout=30.0,
+        max_retries=0,
     )
     openai_client.assert_any_call(
         api_key="test-groq-key",
         base_url="https://api.groq.com/openai/v1",
+        timeout=30.0,
+        max_retries=0,
     )
 
 
@@ -349,10 +360,106 @@ def test_fallback_failure_is_not_retried_again(monkeypatch):
     monkeypatch.setattr("agents.llm_client.OpenAI", openai_factory)
 
     client = LLMClient()
-    with pytest.raises(APIConnectionError) as raised:
+    with pytest.raises(LLMFallbackError) as raised:
         client.generate("research prompt")
 
-    assert raised.value is fallback_error
+    assert raised.value.primary_error is not None
+    assert raised.value.fallback_error is fallback_error
     primary.chat.completions.create.assert_called_once()
     fallback.chat.completions.create.assert_called_once()
     assert openai_factory.call_count == 2
+
+
+
+def test_retries_transient_primary_error_with_exponential_backoff(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_RETRY_ATTEMPTS", "2")
+    monkeypatch.setenv("LLM_RETRY_BACKOFF_SECONDS", "0.25")
+    sleeps = []
+    monkeypatch.setattr("agents.llm_client.time.sleep", sleeps.append)
+
+    provider = MagicMock()
+    provider.chat.completions.create.side_effect = [
+        APIConnectionError(message="temporary", request=MagicMock()),
+        APIConnectionError(message="temporary", request=MagicMock()),
+        SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]),
+    ]
+    monkeypatch.setattr("agents.llm_client.OpenAI", MagicMock(return_value=provider))
+
+    client = LLMClient()
+    assert client.generate("prompt") == "ok"
+    assert provider.chat.completions.create.call_count == 3
+    assert sleeps == [0.25, 0.5]
+
+
+def test_retry_attempts_zero_disables_retries(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_RETRY_ATTEMPTS", "0")
+    provider = MagicMock()
+    provider.chat.completions.create.side_effect = APIConnectionError(
+        message="unavailable", request=MagicMock()
+    )
+    monkeypatch.setattr("agents.llm_client.OpenAI", MagicMock(return_value=provider))
+
+    client = LLMClient()
+    with pytest.raises(APIConnectionError):
+        client.generate("prompt")
+    provider.chat.completions.create.assert_called_once()
+
+
+def test_timeout_and_retry_settings_are_applied_to_both_clients(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "adaption")
+    monkeypatch.setenv("ADAPTION_API_KEY", "test-adaption-key")
+    monkeypatch.setenv("ADAPTION_MODEL", "qwen3.5-397b")
+    monkeypatch.setenv("LLM_TIMEOUT_SECONDS", "12.5")
+    monkeypatch.setenv("LLM_RETRY_ATTEMPTS", "4")
+    factory = MagicMock()
+    monkeypatch.setattr("agents.llm_client.OpenAI", factory)
+
+    client = LLMClient()
+
+    assert client.timeout_seconds == 12.5
+    assert client.max_retries == 4
+    assert factory.call_count == 2
+    for call in factory.call_args_list:
+        assert call.kwargs["timeout"] == 12.5
+        assert call.kwargs["max_retries"] == 0
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "message"),
+    [
+        ("LLM_RETRY_ATTEMPTS", "-1", "at least 0"),
+        ("LLM_RETRY_ATTEMPTS", "many", "must be an integer"),
+        ("LLM_TIMEOUT_SECONDS", "0", "at least 0.1"),
+        ("LLM_TIMEOUT_SECONDS", "fast", "must be a number"),
+        ("LLM_RETRY_BACKOFF_SECONDS", "-0.1", "at least 0.0"),
+    ],
+)
+def test_rejects_invalid_reliability_settings(monkeypatch, name, value, message):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv(name, value)
+    with pytest.raises(ValueError, match=message):
+        LLMClient()
+
+
+def test_non_transient_primary_error_is_not_retried(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_RETRY_ATTEMPTS", "3")
+    provider = MagicMock()
+    error = BadRequestError("invalid", response=MagicMock(), body=None)
+    provider.chat.completions.create.side_effect = error
+    monkeypatch.setattr("agents.llm_client.OpenAI", MagicMock(return_value=provider))
+
+    client = LLMClient()
+    with pytest.raises(BadRequestError) as raised:
+        client.generate("prompt")
+    assert raised.value is error
+    provider.chat.completions.create.assert_called_once()
