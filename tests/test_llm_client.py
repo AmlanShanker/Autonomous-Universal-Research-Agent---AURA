@@ -204,7 +204,6 @@ def test_configures_adaption_fallback_for_groq_primary(monkeypatch):
     assert client.fallback_model == "qwen3.5-397b"
     assert client._fallback_base_url == "https://api.prod.adaptionlabs.ai/api/v1"
     assert client.fallback_client is not None
-    assert client.fallback_client is not None
 
 
 def test_rejects_same_primary_and_fallback_provider(monkeypatch):
@@ -249,7 +248,6 @@ def test_fallback_requires_model_when_provider_has_no_default(monkeypatch):
 
     with pytest.raises(RuntimeError, match="ADAPTION_MODEL"):
         LLMClient()
-
 
 
 def test_generate_falls_back_after_primary_connection_failure(monkeypatch):
