@@ -33,13 +33,18 @@ class ExperimentRunner:
     def run(self, experiment: ExperimentDefinition) -> ExperimentResult:
         """Persist a specification, execute bounded repetitions, and evaluate metrics."""
         started_at = datetime.now(timezone.utc)
+        previous_definition = self.database.get_experiment(experiment.experiment_id)
         self.database.save_experiment(experiment)
         stable_result_id = str(uuid.uuid5(
             uuid.NAMESPACE_URL,
             f"aura:experiment-result:{experiment.experiment_id}",
         ))
         existing_result = self.database.get_experiment_result(stable_result_id)
-        if existing_result is not None and existing_result.status == "completed":
+        if (
+            existing_result is not None
+            and existing_result.status == "completed"
+            and previous_definition == experiment
+        ):
             return existing_result
         adapter = self.adapters.get(experiment.adapter_name)
 
