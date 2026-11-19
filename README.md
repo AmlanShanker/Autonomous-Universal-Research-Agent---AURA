@@ -108,3 +108,10 @@ Literature-search results are normalized into durable source records with a stab
 ### Experiment reproducibility
 
 Experiment parameter inputs are saved as immutable, SHA-256-verified snapshots with monotonically increasing versions for a stable experiment identity. Changing parameters creates a new version and a distinct result identity; re-running an unchanged specification reuses its completed result. Each result records observed Python version, implementation, and platform separately from any declared environment requirements, adapter version, code revision, dependency-lock digest, and package versions. AURA records environment metadata but does not install dependencies or claim that a manifest alone guarantees bit-for-bit reproducibility. Trusted adapters may return named text artifacts; artifacts are stored separately with content hashes and a 1 MB per-artifact limit. Arbitrary generated code and executable artifacts are not run.
+
+
+### Tool execution security and resource limits
+
+AURA routes registered tool calls through an application-level execution guard. Only the explicitly allowlisted built-in adapters (`literature_search` and `dataset_download`) may run; generated tool specifications and generated implementations remain non-executable. The guard bounds serialized input (64 KiB), serialized output (4 MiB), and concurrent executions per task-executor process (4), and records resource-use metadata with successful tool results. This is not an operating-system sandbox and does not isolate a compromised Python process.
+
+Network adapters use explicit connect/read timeouts and bounded response/download sizes. Dataset downloads reject local/private literal hosts, credentials in URLs, nonstandard ports, and redirects; downloaded files remain data and are never executed. The dataset limit is 250 MiB and arXiv responses are capped at 5 MiB. Deployments handling untrusted workloads should additionally run AURA in a restricted OS/container environment with network egress controls and filesystem permissions.
