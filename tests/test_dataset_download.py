@@ -303,3 +303,23 @@ def test_redirect_response_is_rejected_and_partial_file_removed(monkeypatch, tmp
         )
 
     assert not (tmp_path / "redirected.bin").exists()
+
+
+def test_declared_oversized_download_is_rejected_before_file_creation(monkeypatch, tmp_path):
+    response = FakeResponse(b"small")
+    response.headers["Content-Length"] = str(DatasetDownloadTool.MAX_FILE_SIZE + 1)
+
+    monkeypatch.setattr(
+        "tools.implementations.requests.get",
+        lambda *args, **kwargs: response,
+    )
+    tool = DatasetDownloadTool()
+    tool.DOWNLOAD_DIRECTORY = tmp_path
+
+    with pytest.raises(RuntimeError, match="maximum allowed download size"):
+        tool.execute(
+            source_url="https://example.com/data",
+            destination_path="oversized.bin",
+        )
+
+    assert not (tmp_path / "oversized.bin").exists()
