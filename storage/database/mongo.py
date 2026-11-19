@@ -40,6 +40,20 @@ class MongoDatabase(Database):
             unique=True,
             partialFilterExpression={"idempotency_key": {"$type": "string"}},
         )
+        self.research_jobs.create_index(
+            "run_id",
+            unique=True,
+            partialFilterExpression={
+                "status": {
+                    "$in": [
+                        ResearchJobStatus.QUEUED.value,
+                        ResearchJobStatus.RUNNING.value,
+                        ResearchJobStatus.CANCEL_REQUESTED.value,
+                    ]
+                }
+            },
+            name="one_active_research_job_per_run",
+        )
         self.research_jobs.create_index([("status", 1), ("created_at", 1)])
 
     def save_research_report(self, report: ResearchReport) -> None:
