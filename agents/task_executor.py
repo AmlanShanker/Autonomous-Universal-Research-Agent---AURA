@@ -28,6 +28,7 @@ from tools.builder import (
     ToolBuilder,
 )
 from tools.registry import ToolRegistry
+from tools.execution_sandbox import ToolExecutionSandbox
 
 
 class TaskExecutor:
@@ -90,6 +91,7 @@ class TaskExecutor:
         self.progress_callback = progress_callback
         self.llm_client = llm_client
         self.tool_registry = tool_registry
+        self.execution_sandbox = ToolExecutionSandbox()
         self.finding_extractor = finding_extractor
         self.memory_writer = memory_writer
         self.memory_retriever = memory_retriever
@@ -1437,6 +1439,7 @@ Return ONLY one valid JSON object with exactly these top-level fields:
             )
             return existing
 
+        execution_sandbox_metadata = {}
         try:
             if tool_name == "literature_search":
                 tool_inputs = self._build_tool_inputs(
@@ -1454,7 +1457,8 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                     5,
                 )
 
-                output = tool.execute(
+                output, execution_sandbox_metadata = self.execution_sandbox.execute(
+                    tool,
                     query=query,
                     max_results=max_results,
                 )
@@ -1489,7 +1493,8 @@ Return ONLY one valid JSON object with exactly these top-level fields:
                         "'destination_path' in task.tool_inputs."
                     )
 
-                output = tool.execute(
+                output, execution_sandbox_metadata = self.execution_sandbox.execute(
+                    tool,
                     source_url=source_url,
                     destination_path=destination_path,
                     checksum=checksum,
@@ -1550,6 +1555,7 @@ Return ONLY one valid JSON object with exactly these top-level fields:
             output=output,
             metadata={
                 "execution_type": "tool",
+                **execution_sandbox_metadata,
             },
         )
 
