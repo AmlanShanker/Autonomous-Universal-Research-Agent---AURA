@@ -173,9 +173,14 @@ class ResearchWorker:
 
         def heartbeat() -> None:
             while not heartbeat_stop.wait(max(10, self.lease_seconds // 3)):
-                if not self.database.renew_research_job_lease(
-                    job.job_id, self.worker_id, lease_token, self.lease_seconds
-                ):
+                try:
+                    renewed = self.database.renew_research_job_lease(
+                        job.job_id, self.worker_id, lease_token, self.lease_seconds
+                    )
+                except Exception:
+                    lease_lost.set()
+                    return
+                if not renewed:
                     lease_lost.set()
                     return
 
