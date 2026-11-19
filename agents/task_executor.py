@@ -1265,12 +1265,18 @@ Return ONLY one valid JSON object with exactly these top-level fields:
         """Run task-declared experiments only through injected trusted adapters."""
         results = []
         for spec in task.experiments:
-            spec_identity = json.dumps(
-                spec.model_dump(), sort_keys=True, separators=(",", ":"), default=str
+            experiment_identity = json.dumps(
+                {
+                    "adapter_name": spec.adapter_name,
+                    "hypothesis": spec.hypothesis,
+                    "method": spec.method,
+                },
+                sort_keys=True,
+                separators=(",", ":"),
             )
             experiment_id = str(uuid.uuid5(
                 uuid.NAMESPACE_URL,
-                f"aura:experiment:{self.run_id}:{task.task_id}:{len(results)}:{spec_identity}",
+                f"aura:experiment:{self.run_id}:{task.task_id}:{len(results)}:{experiment_identity}",
             ))
             definition = ExperimentDefinition(
                 experiment_id=experiment_id,
