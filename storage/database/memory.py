@@ -8,6 +8,7 @@ from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
+from storage.models.job_stats import ResearchJobQueueStats
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -139,6 +140,34 @@ class InMemoryDatabase(Database):
             job.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
             job.touch()
             return True
+
+    def get_research_job_queue_stats(self) -> ResearchJobQueueStats:
+        now = datetime.now(timezone.utc)
+        with self._job_lock:
+            jobs = list(self.research_jobs.values())
+            counts = {status: sum(job.status == status for job in jobs) for status in ResearchJobStatus}
+            active = [
+                job for job in jobs
+                if job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}
+            ]
+            expired = sum(
+                job.lease_expires_at is not None and job.lease_expires_at <= now
+                for job in active
+            )
+            queued_times = [job.created_at for job in jobs if job.status == ResearchJobStatus.QUEUED]
+            workers = {job.worker_id for job in active if job.worker_id}
+            return ResearchJobQueueStats(
+                total=len(jobs),
+                queued=counts[ResearchJobStatus.QUEUED],
+                running=counts[ResearchJobStatus.RUNNING],
+                cancel_requested=counts[ResearchJobStatus.CANCEL_REQUESTED],
+                succeeded=counts[ResearchJobStatus.SUCCEEDED],
+                failed=counts[ResearchJobStatus.FAILED],
+                cancelled=counts[ResearchJobStatus.CANCELLED],
+                expired_leases=expired,
+                active_workers=len(workers),
+                oldest_queued_at=min(queued_times) if queued_times else None,
+            )
 
     def save_research_job_attempt(self, attempt: ResearchJobAttempt) -> None:
         with self._job_lock:
