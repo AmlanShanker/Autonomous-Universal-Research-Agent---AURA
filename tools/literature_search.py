@@ -11,6 +11,10 @@ class LiteratureSearchTool(ResearchTool):
     """
 
     ARXIV_URL = "https://export.arxiv.org/api/query"
+    MAX_QUERY_LENGTH = 2_000
+    MAX_RESPONSE_BYTES = 5 * 1024 * 1024
+    CONNECT_TIMEOUT_SECONDS = 5
+    READ_TIMEOUT_SECONDS = 20
 
     @property
     def name(self) -> str:
@@ -32,15 +36,15 @@ class LiteratureSearchTool(ResearchTool):
         Search arXiv for research papers.
         """
 
-        if not query or not query.strip():
-            raise ValueError(
-                "Literature search query cannot be empty."
-            )
-
-        max_results = max(
-            1,
-            min(max_results, 25),
-        )
+        if not isinstance(query, str) or not query.strip():
+            raise ValueError("Literature search query cannot be empty.")
+        query = query.strip()
+        if len(query) > self.MAX_QUERY_LENGTH:
+            raise ValueError(f"Literature search query exceeds {self.MAX_QUERY_LENGTH} characters.")
+        if isinstance(max_results, bool) or not isinstance(max_results, int):
+            raise ValueError("max_results must be an integer.")
+        if not 1 <= max_results <= 25:
+            raise ValueError("max_results must be between 1 and 25.")
 
         params = {
             "search_query": f"all:{query.strip()}",
@@ -61,10 +65,24 @@ class LiteratureSearchTool(ResearchTool):
                 self.ARXIV_URL,
                 params=params,
                 headers=headers,
-                timeout=60,
+                timeout=(self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS),
+                stream=True,
             )
 
             response.raise_for_status()
+            content_length = response.headers.get("Content-Length")
+            if content_length is not None and int(content_length) > self.MAX_RESPONSE_BYTES:
+                raise RuntimeError("arXiv response exceeds the configured size limit.")
+            response_chunks = []
+            response_size = 0
+            for chunk in response.iter_content(chunk_size=64 * 1024):
+                if not chunk:
+                    continue
+                response_size += len(chunk)
+                if response_size > self.MAX_RESPONSE_BYTES:
+                    raise RuntimeError("arXiv response exceeds the configured size limit.")
+                response_chunks.append(chunk)
+            response_content = b"".join(response_chunks)
 
         except requests.exceptions.RequestException as exc:
             raise RuntimeError(
@@ -73,7 +91,7 @@ class LiteratureSearchTool(ResearchTool):
 
         try:
             root = ET.fromstring(
-                response.content
+                response_content
             )
 
         except ET.ParseError as exc:
