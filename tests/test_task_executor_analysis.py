@@ -211,7 +211,6 @@ def test_analysis_prompt_includes_all_records_in_normal_literature_search_eviden
     )
     executor.run()
     assert llm.prompt is not None
-    assert llm.prompt is not None
     assert "Paper 0" in llm.prompt
     assert "Paper 24" in llm.prompt
     assert '"records_included": 25' in llm.prompt
