@@ -4,7 +4,9 @@ import uuid
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
-from storage.models.experiment import ExperimentDefinition, ExperimentResult
+from storage.models.experiment import (
+    ExperimentArtifact, ExperimentDefinition, ExperimentParameterSnapshot, ExperimentResult,
+)
 from storage.models.execution import ExecutionResult
 from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
@@ -31,6 +33,8 @@ class InMemoryDatabase(Database):
         self.execution_results: dict[str, ExecutionResult] = {}
         self.experiments: dict[str, ExperimentDefinition] = {}
         self.experiment_results: dict[str, ExperimentResult] = {}
+        self.experiment_parameter_snapshots: dict[str, ExperimentParameterSnapshot] = {}
+        self.experiment_artifacts: dict[str, ExperimentArtifact] = {}
         self.research_memory: dict[str, ResearchMemoryItem] = {}
         self.research_reports: dict[str, ResearchReport] = {}
         self.research_jobs: dict[str, ResearchJob] = {}
@@ -292,6 +296,33 @@ class InMemoryDatabase(Database):
 
     def get_experiment(self, experiment_id: str) -> ExperimentDefinition | None:
         return self.experiments.get(experiment_id)
+
+    def save_experiment_parameter_snapshot(self, snapshot: ExperimentParameterSnapshot) -> None:
+        existing = self.experiment_parameter_snapshots.get(snapshot.snapshot_id)
+        if existing is not None and existing.model_dump(exclude={"created_at"}) != snapshot.model_dump(exclude={"created_at"}):
+            raise ValueError("Experiment parameter snapshots are immutable.")
+        self.experiment_parameter_snapshots[snapshot.snapshot_id] = snapshot.model_copy(deep=True)
+
+    def get_experiment_parameter_snapshot(self, snapshot_id: str) -> ExperimentParameterSnapshot | None:
+        snapshot = self.experiment_parameter_snapshots.get(snapshot_id)
+        return snapshot.model_copy(deep=True) if snapshot is not None else None
+
+    def save_experiment_artifact(self, artifact: ExperimentArtifact) -> None:
+        existing = self.experiment_artifacts.get(artifact.artifact_id)
+        if existing is not None and existing.model_dump(exclude={"created_at"}) != artifact.model_dump(exclude={"created_at"}):
+            raise ValueError("Experiment artifacts are immutable.")
+        self.experiment_artifacts[artifact.artifact_id] = artifact.model_copy(deep=True)
+
+    def get_experiment_artifact(self, artifact_id: str) -> ExperimentArtifact | None:
+        artifact = self.experiment_artifacts.get(artifact_id)
+        return artifact.model_copy(deep=True) if artifact is not None else None
+
+    def list_experiment_artifacts(self, result_id: str) -> list[ExperimentArtifact]:
+        return [
+            item.model_copy(deep=True)
+            for item in self.experiment_artifacts.values()
+            if item.result_id == result_id
+        ]
 
     def save_experiment_result(self, result: ExperimentResult) -> None:
         self.experiment_results[result.result_id] = result

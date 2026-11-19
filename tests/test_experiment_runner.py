@@ -185,6 +185,7 @@ def test_changed_experiment_specification_does_not_reuse_stale_result():
     first = runner.run(make_experiment())
     changed = runner.run(make_experiment(parameters={"chunk_size": 512}))
 
-    assert first.result_id == changed.result_id
+    assert first.result_id != changed.result_id
     assert changed.status == "completed"
+    assert changed.metadata["parameter_version"] == 2
     assert calls == [256, 256, 512, 512]

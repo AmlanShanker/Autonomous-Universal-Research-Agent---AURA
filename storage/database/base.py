@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
 
 from memory.research_memory import ResearchMemoryItem
-from storage.models.experiment import ExperimentDefinition, ExperimentResult
+from storage.models.experiment import (
+    ExperimentArtifact, ExperimentDefinition, ExperimentParameterSnapshot, ExperimentResult,
+)
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
 from storage.models.evidence import ResearchSource
@@ -151,6 +153,26 @@ class Database(ABC):
 
     @abstractmethod
     def save_experiment(self, experiment: ExperimentDefinition) -> None:
+        pass
+
+    @abstractmethod
+    def save_experiment_parameter_snapshot(self, snapshot: ExperimentParameterSnapshot) -> None:
+        pass
+
+    @abstractmethod
+    def get_experiment_parameter_snapshot(self, snapshot_id: str) -> ExperimentParameterSnapshot | None:
+        pass
+
+    @abstractmethod
+    def save_experiment_artifact(self, artifact: ExperimentArtifact) -> None:
+        pass
+
+    @abstractmethod
+    def get_experiment_artifact(self, artifact_id: str) -> ExperimentArtifact | None:
+        pass
+
+    @abstractmethod
+    def list_experiment_artifacts(self, result_id: str) -> list[ExperimentArtifact]:
         pass
 
     @abstractmethod
