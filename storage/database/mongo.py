@@ -454,7 +454,7 @@ class MongoDatabase(Database):
         if existing is not None:
             existing.pop("_id", None)
             current = ExperimentParameterSnapshot.model_validate(existing)
-            if current != snapshot:
+            if current.model_dump(exclude={"created_at"}) != snapshot.model_dump(exclude={"created_at"}):
                 raise ValueError("Experiment parameter snapshots are immutable.")
             return
         self.experiment_parameter_snapshots.insert_one(snapshot.model_dump(mode="json"))
@@ -471,7 +471,7 @@ class MongoDatabase(Database):
         if existing is not None:
             existing.pop("_id", None)
             current = ExperimentArtifact.model_validate(existing)
-            if current != artifact:
+            if current.model_dump(exclude={"created_at"}) != artifact.model_dump(exclude={"created_at"}):
                 raise ValueError("Experiment artifacts are immutable.")
             return
         self.experiment_artifacts.insert_one(artifact.model_dump(mode="json"))
