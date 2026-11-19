@@ -6,6 +6,7 @@ from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob
+from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -63,6 +64,14 @@ class Database(ABC):
 
     @abstractmethod
     def renew_research_job_lease(self, job_id: str, worker_id: str, lease_seconds: int = 3600) -> bool:
+        pass
+
+    @abstractmethod
+    def save_research_job_attempt(self, attempt: ResearchJobAttempt) -> None:
+        pass
+
+    @abstractmethod
+    def list_research_job_attempts(self, job_id: str) -> list[ResearchJobAttempt]:
         pass
 
     @abstractmethod
