@@ -73,6 +73,7 @@ class LLMClient:
         self.fallback_provider = None
         self.fallback_model = None
         self.fallback_client = None
+        self._fallback_base_url = None
         self._load_fallback_configuration()
 
     @classmethod
@@ -138,6 +139,7 @@ class LLMClient:
         fallback_key = self._configured_api_key(fallback_config, fallback_provider)
         self.fallback_model = self._configured_model(fallback_config, fallback_provider)
         self.fallback_provider = fallback_provider
+        self._fallback_base_url = fallback_config["base_url"]
         self.fallback_client = OpenAI(
             api_key=fallback_key,
             base_url=fallback_config["base_url"],
