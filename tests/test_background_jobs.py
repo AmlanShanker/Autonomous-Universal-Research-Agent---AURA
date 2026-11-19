@@ -317,3 +317,100 @@ def test_enqueue_idempotency_key_conflict_across_runs_returns_conflict():
     )
 
     assert second.status_code == 409
+
+
+def test_queue_stats_endpoint_returns_zeroed_summary_for_empty_queue():
+    client, _ = build_client()
+
+    response = client.get("/research/jobs/queue/stats")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "total": 0,
+        "queued": 0,
+        "running": 0,
+        "cancel_requested": 0,
+        "succeeded": 0,
+        "failed": 0,
+        "cancelled": 0,
+        "expired_leases": 0,
+        "active_workers": 0,
+        "oldest_queued_at": None,
+    }
+
+
+def test_queue_stats_counts_statuses_and_distinct_active_workers():
+    database = InMemoryDatabase()
+    now = datetime.now(timezone.utc)
+    jobs = [
+        ResearchJob(job_id="stats-queued-old", run_id="stats-run-1", created_at=now - timedelta(minutes=10)),
+        ResearchJob(job_id="stats-queued-new", run_id="stats-run-2", created_at=now - timedelta(minutes=2)),
+        ResearchJob(job_id="stats-running", run_id="stats-run-3", status=ResearchJobStatus.RUNNING, worker_id="worker-a"),
+        ResearchJob(job_id="stats-cancel-requested", run_id="stats-run-4", status=ResearchJobStatus.CANCEL_REQUESTED, worker_id="worker-a"),
+        ResearchJob(job_id="stats-succeeded", run_id="stats-run-5", status=ResearchJobStatus.SUCCEEDED),
+        ResearchJob(job_id="stats-failed", run_id="stats-run-6", status=ResearchJobStatus.FAILED),
+        ResearchJob(job_id="stats-cancelled", run_id="stats-run-7", status=ResearchJobStatus.CANCELLED),
+    ]
+    for job in jobs:
+        database.save_research_job(job)
+
+    stats = database.get_research_job_queue_stats()
+
+    assert stats.total == 7
+    assert stats.queued == 2
+    assert stats.running == 1
+    assert stats.cancel_requested == 1
+    assert stats.succeeded == 1
+    assert stats.failed == 1
+    assert stats.cancelled == 1
+    assert stats.active_workers == 1
+    assert stats.oldest_queued_at == now - timedelta(minutes=10)
+
+
+def test_queue_stats_counts_expired_running_and_cancellation_leases():
+    database = InMemoryDatabase()
+    expired = datetime.now(timezone.utc) - timedelta(seconds=5)
+    database.save_research_job(ResearchJob(
+        job_id="stats-expired-running",
+        run_id="stats-expired-run-1",
+        status=ResearchJobStatus.RUNNING,
+        worker_id="worker-a",
+        lease_expires_at=expired,
+    ))
+    database.save_research_job(ResearchJob(
+        job_id="stats-expired-cancel",
+        run_id="stats-expired-run-2",
+        status=ResearchJobStatus.CANCEL_REQUESTED,
+        worker_id="worker-b",
+        lease_expires_at=expired,
+    ))
+    database.save_research_job(ResearchJob(
+        job_id="stats-live",
+        run_id="stats-live-run",
+        status=ResearchJobStatus.RUNNING,
+        worker_id="worker-c",
+        lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    ))
+
+    stats = database.get_research_job_queue_stats()
+
+    assert stats.expired_leases == 2
+    assert stats.active_workers == 3
+
+
+def test_queue_stats_endpoint_reflects_persisted_jobs():
+    client, database = build_client()
+    database.save_research_job(ResearchJob(
+        job_id="stats-api-job",
+        run_id="stats-api-run",
+        status=ResearchJobStatus.RUNNING,
+        worker_id="api-worker",
+        lease_expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
+    ))
+
+    response = client.get("/research/jobs/queue/stats")
+
+    assert response.status_code == 200
+    assert response.json()["total"] == 1
+    assert response.json()["running"] == 1
+    assert response.json()["active_workers"] == 1
