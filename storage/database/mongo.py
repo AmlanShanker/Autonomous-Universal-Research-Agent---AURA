@@ -67,11 +67,18 @@ class MongoDatabase(Database):
         self.research_jobs.create_index([("status", 1), ("created_at", 1)])
 
     def save_research_source(self, source: ResearchSource) -> None:
-        self.research_sources.replace_one(
-            {"canonical_id": source.canonical_id},
-            source.model_dump(mode="json"),
-            upsert=True,
-        )
+        existing = self.get_research_source_by_canonical_id(source.canonical_id)
+        richness = lambda item: sum(bool(value) for value in (
+            item.title if item.title != "Untitled source" else None,
+            item.authors, item.abstract, item.doi, item.arxiv_id,
+            item.publisher, item.publication_year, item.url,
+        ))
+        if existing is None or richness(source) > richness(existing):
+            self.research_sources.replace_one(
+                {"canonical_id": source.canonical_id},
+                source.model_dump(mode="json"),
+                upsert=True,
+            )
 
     def get_research_source(self, source_id: str) -> ResearchSource | None:
         document = self.research_sources.find_one({"source_id": source_id})
