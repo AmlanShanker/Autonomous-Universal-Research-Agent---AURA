@@ -12,8 +12,9 @@ class LLMClient:
     - Groq (default)
     - Adaption Labs
 
-    Select a provider with LLM_PROVIDER. Existing deployments continue to use
-    Groq when LLM_PROVIDER is not set.
+    Select the primary provider with LLM_PROVIDER. An optional, distinct
+    provider can be configured with LLM_FALLBACK_PROVIDER. Fallback execution
+    is handled separately; this class validates and stores its configuration.
     """
 
     PROVIDERS = {
@@ -35,38 +36,81 @@ class LLMClient:
         load_dotenv()
 
         self.provider = os.getenv("LLM_PROVIDER", "groq").strip().lower()
-        if self.provider not in self.PROVIDERS:
-            supported = ", ".join(sorted(self.PROVIDERS))
-            raise ValueError(
-                f"Unsupported LLM_PROVIDER '{self.provider}'. "
-                f"Supported providers: {supported}."
-            )
-
-        config = self.PROVIDERS[self.provider]
-        api_key = os.getenv(config["api_key_env"])
-        if not api_key:
-            raise RuntimeError(
-                f"{config['api_key_env']} is not configured."
-            )
-
-        self.model = (
-            os.getenv(config["model_env"]) or config["default_model"]
-        )
-        if not self.model or not self.model.strip():
-            raise RuntimeError(
-                f"{config['model_env']} is not configured "
-                f"for provider '{self.provider}'."
-            )
-        self.model = self.model.strip()
+        primary_config = self._provider_config(self.provider, "LLM_PROVIDER")
+        self.model = self._configured_model(primary_config, self.provider)
+        api_key = self._configured_api_key(primary_config, self.provider)
 
         self.client = OpenAI(
             api_key=api_key,
-            base_url=config["base_url"],
+            base_url=primary_config["base_url"],
         )
+
+        self.fallback_provider = None
+        self.fallback_model = None
+        self._fallback_api_key = None
+        self._fallback_base_url = None
+        self._load_fallback_configuration()
+
+    @classmethod
+    def _provider_config(cls, provider: str, setting_name: str) -> dict:
+        if provider not in cls.PROVIDERS:
+            supported = ", ".join(sorted(cls.PROVIDERS))
+            raise ValueError(
+                f"Unsupported {setting_name} '{provider}'. "
+                f"Supported providers: {supported}."
+            )
+        return cls.PROVIDERS[provider]
+
+    @staticmethod
+    def _configured_api_key(config: dict, provider: str) -> str:
+        api_key = os.getenv(config["api_key_env"])
+        if not api_key or not api_key.strip():
+            raise RuntimeError(
+                f"{config['api_key_env']} is not configured "
+                f"for provider '{provider}'."
+            )
+        return api_key.strip()
+
+    @staticmethod
+    def _configured_model(config: dict, provider: str) -> str:
+        model = os.getenv(config["model_env"]) or config["default_model"]
+        if not model or not model.strip():
+            raise RuntimeError(
+                f"{config['model_env']} is not configured "
+                f"for provider '{provider}'."
+            )
+        return model.strip()
+
+    def _load_fallback_configuration(self) -> None:
+        fallback_provider = (
+            os.getenv("LLM_FALLBACK_PROVIDER", "").strip().lower()
+        )
+        if not fallback_provider:
+            return
+
+        fallback_config = self._provider_config(
+            fallback_provider,
+            "LLM_FALLBACK_PROVIDER",
+        )
+        if fallback_provider == self.provider:
+            raise ValueError(
+                "LLM_FALLBACK_PROVIDER must be different from LLM_PROVIDER."
+            )
+
+        self._fallback_api_key = self._configured_api_key(
+            fallback_config,
+            fallback_provider,
+        )
+        self.fallback_model = self._configured_model(
+            fallback_config,
+            fallback_provider,
+        )
+        self.fallback_provider = fallback_provider
+        self._fallback_base_url = fallback_config["base_url"]
 
     def generate(self, prompt: str) -> str:
         """
-        Send a prompt to the configured provider and return its response.
+        Send a prompt to the configured primary provider and return its response.
         """
 
         response = self.client.chat.completions.create(
