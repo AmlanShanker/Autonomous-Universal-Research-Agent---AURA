@@ -1,4 +1,5 @@
 import hashlib
+import ipaddress
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -22,7 +23,9 @@ class DatasetDownloadTool(ResearchTool):
         / "downloads"
     )
 
-    MAX_FILE_SIZE = 500 * 1024 * 1024
+    MAX_FILE_SIZE = 250 * 1024 * 1024
+    CONNECT_TIMEOUT_SECONDS = 5
+    READ_TIMEOUT_SECONDS = 30
 
     @property
     def name(self) -> str:
@@ -85,8 +88,21 @@ class DatasetDownloadTool(ResearchTool):
             response = requests.get(
                 source_url,
                 stream=True,
-                timeout=60,
+                timeout=(self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS),
+                allow_redirects=False,
             )
+
+            if 300 <= getattr(response, "status_code", 200) < 400:
+                raise RuntimeError("Dataset download redirects are not permitted.")
+
+            content_length = getattr(response, "headers", {}).get("Content-Length")
+            if content_length is not None:
+                try:
+                    declared_size = int(content_length)
+                except (TypeError, ValueError) as exc:
+                    raise RuntimeError("Dataset response has an invalid Content-Length.") from exc
+                if declared_size < 0 or declared_size > self.MAX_FILE_SIZE:
+                    raise RuntimeError("Dataset exceeds the maximum allowed download size.")
 
             response.raise_for_status()
 
@@ -205,10 +221,24 @@ class DatasetDownloadTool(ResearchTool):
                 "HTTP or HTTPS."
             )
 
-        if not parsed.netloc:
-            raise ValueError(
-                "Dataset source URL is invalid."
-            )
+        if not parsed.hostname or parsed.username or parsed.password:
+            raise ValueError("Dataset source URL is invalid.")
+
+        if parsed.port not in (None, 80, 443):
+            raise ValueError("Dataset source URL uses a disallowed port.")
+
+        hostname = parsed.hostname.rstrip(".").lower()
+        if hostname in {"localhost", "localhost.localdomain"} or hostname.endswith(
+            (".localhost", ".local", ".internal", ".test")
+        ):
+            raise ValueError("Dataset source host is not publicly routable.")
+
+        try:
+            address = ipaddress.ip_address(hostname)
+        except ValueError:
+            address = None
+        if address is not None and not address.is_global:
+            raise ValueError("Dataset source host must use a public IP address.")
 
     def _validate_checksum(
         self,
