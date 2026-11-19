@@ -41,7 +41,12 @@ class InMemoryDatabase(Database):
 
     def save_research_source(self, source: ResearchSource) -> None:
         existing = self.get_research_source_by_canonical_id(source.canonical_id)
-        if existing is None or len(source.model_dump(exclude_none=True)) > len(existing.model_dump(exclude_none=True)):
+        richness = lambda item: sum(bool(value) for value in (
+            item.title if item.title != "Untitled source" else None,
+            item.authors, item.abstract, item.doi, item.arxiv_id,
+            item.publisher, item.publication_year, item.url,
+        ))
+        if existing is None or richness(source) > richness(existing):
             self.research_sources[source.source_id] = source.model_copy(deep=True)
 
     def get_research_source(self, source_id: str) -> ResearchSource | None:
