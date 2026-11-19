@@ -9,6 +9,7 @@ from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
+from storage.models.job_stats import ResearchJobQueueStats
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -199,6 +200,69 @@ class MongoDatabase(Database):
             },
         )
         return result.modified_count == 1
+
+    def get_research_job_queue_stats(self) -> ResearchJobQueueStats:
+        now = datetime.now(timezone.utc)
+        grouped = list(self.research_jobs.aggregate([
+            {
+                "$group": {
+                    "_id": "$status",
+                    "count": {"$sum": 1},
+                    "oldest_queued_at": {
+                        "$min": {
+                            "$cond": [
+                                {"$eq": ["$status", ResearchJobStatus.QUEUED.value]},
+                                "$created_at",
+                                None,
+                            ]
+                        }
+                    },
+                    "workers": {
+                        "$addToSet": {
+                            "$cond": [
+                                {"$in": ["$status", [
+                                    ResearchJobStatus.RUNNING.value,
+                                    ResearchJobStatus.CANCEL_REQUESTED.value,
+                                ]]},
+                                "$worker_id",
+                                None,
+                            ]
+                        }
+                    },
+                }
+            }
+        ]))
+        counts = {item["_id"]: item["count"] for item in grouped}
+        workers = {
+            worker
+            for item in grouped
+            for worker in item.get("workers", [])
+            if worker
+        }
+        oldest = [
+            item["oldest_queued_at"]
+            for item in grouped
+            if item.get("oldest_queued_at") is not None
+        ]
+        expired = self.research_jobs.count_documents({
+            "status": {"$in": [
+                ResearchJobStatus.RUNNING.value,
+                ResearchJobStatus.CANCEL_REQUESTED.value,
+            ]},
+            "lease_expires_at": {"$lte": now},
+        })
+        return ResearchJobQueueStats(
+            total=sum(counts.values()),
+            queued=counts.get(ResearchJobStatus.QUEUED.value, 0),
+            running=counts.get(ResearchJobStatus.RUNNING.value, 0),
+            cancel_requested=counts.get(ResearchJobStatus.CANCEL_REQUESTED.value, 0),
+            succeeded=counts.get(ResearchJobStatus.SUCCEEDED.value, 0),
+            failed=counts.get(ResearchJobStatus.FAILED.value, 0),
+            cancelled=counts.get(ResearchJobStatus.CANCELLED.value, 0),
+            expired_leases=expired,
+            active_workers=len(workers),
+            oldest_queued_at=min(oldest) if oldest else None,
+        )
 
     def save_research_job_attempt(self, attempt: ResearchJobAttempt) -> None:
         self.research_job_attempts.replace_one(
