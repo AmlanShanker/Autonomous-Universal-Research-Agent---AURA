@@ -9,6 +9,7 @@ from agents.llm_client import LLMClient
 def isolate_environment(monkeypatch):
     # Do not let a developer's local .env file leak into configuration tests.
     monkeypatch.setattr("agents.llm_client.load_dotenv", lambda: None)
+    monkeypatch.delenv("LLM_FALLBACK_PROVIDER", raising=False)
 
 
 def test_defaults_to_groq_for_backward_compatibility(monkeypatch):
@@ -24,6 +25,8 @@ def test_defaults_to_groq_for_backward_compatibility(monkeypatch):
 
     assert client.provider == "groq"
     assert client.model == "openai/gpt-oss-120b"
+    assert client.fallback_provider is None
+    assert client.fallback_model is None
     openai_client.assert_called_once_with(
         api_key="test-groq-key",
         base_url="https://api.groq.com/openai/v1",
@@ -150,3 +153,89 @@ def test_empty_provider_response_raises_clear_error(monkeypatch):
 
     with pytest.raises(RuntimeError, match="empty response"):
         client.generate("Test prompt")
+
+
+def test_configures_groq_fallback_for_adaption_primary(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "adaption")
+    monkeypatch.setenv("ADAPTION_API_KEY", "test-adaption-key")
+    monkeypatch.setenv("ADAPTION_MODEL", "qwen3.5-397b")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.delenv("GROQ_MODEL", raising=False)
+
+    openai_client = MagicMock()
+    monkeypatch.setattr("agents.llm_client.OpenAI", openai_client)
+
+    client = LLMClient()
+
+    assert client.provider == "adaption"
+    assert client.model == "qwen3.5-397b"
+    assert client.fallback_provider == "groq"
+    assert client.fallback_model == "openai/gpt-oss-120b"
+    assert client._fallback_base_url == "https://api.groq.com/openai/v1"
+    openai_client.assert_called_once_with(
+        api_key="test-adaption-key",
+        base_url="https://api.prod.adaptionlabs.ai/api/v1",
+    )
+
+
+def test_configures_adaption_fallback_for_groq_primary(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "adaption")
+    monkeypatch.setenv("ADAPTION_API_KEY", "test-adaption-key")
+    monkeypatch.setenv("ADAPTION_MODEL", "qwen3.5-397b")
+
+    monkeypatch.setattr("agents.llm_client.OpenAI", MagicMock())
+
+    client = LLMClient()
+
+    assert client.fallback_provider == "adaption"
+    assert client.fallback_model == "qwen3.5-397b"
+    assert client._fallback_base_url == "https://api.prod.adaptionlabs.ai/api/v1"
+
+
+def test_rejects_same_primary_and_fallback_provider(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "groq")
+
+    with pytest.raises(ValueError, match="must be different"):
+        LLMClient()
+
+
+def test_rejects_unsupported_fallback_provider(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "unknown")
+
+    with pytest.raises(ValueError, match="Unsupported LLM_FALLBACK_PROVIDER"):
+        LLMClient()
+
+
+def test_fallback_requires_its_own_api_key(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "adaption")
+    monkeypatch.setenv("ADAPTION_API_KEY", "test-adaption-key")
+    monkeypatch.setenv("ADAPTION_MODEL", "qwen3.5-397b")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "groq")
+    monkeypatch.delenv("GROQ_API_KEY", raising=False)
+
+    with pytest.raises(RuntimeError, match="GROQ_API_KEY"):
+        LLMClient()
+
+
+def test_fallback_requires_model_when_provider_has_no_default(monkeypatch):
+    isolate_environment(monkeypatch)
+    monkeypatch.setenv("LLM_PROVIDER", "groq")
+    monkeypatch.setenv("GROQ_API_KEY", "test-groq-key")
+    monkeypatch.setenv("LLM_FALLBACK_PROVIDER", "adaption")
+    monkeypatch.setenv("ADAPTION_API_KEY", "test-adaption-key")
+    monkeypatch.delenv("ADAPTION_MODEL", raising=False)
+
+    with pytest.raises(RuntimeError, match="ADAPTION_MODEL"):
+        LLMClient()
