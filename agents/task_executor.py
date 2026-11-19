@@ -1,3 +1,4 @@
+import hashlib
 import json
 import uuid
 from collections.abc import Callable
@@ -14,6 +15,7 @@ from memory.research_memory_retriever import ResearchMemoryRetriever
 from storage.database.base import Database
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
+from storage.models.task_checkpoint import TaskCheckpoint
 from storage.models.experiment import ExperimentDefinition
 from storage.models.research import (
     ResearchRunStatus,
@@ -77,6 +79,13 @@ class TaskExecutor:
         }
         self.database = database
         self.run_id = run_id
+        for task in self.tasks.values():
+            checkpoint = self.database.get_task_checkpoint(self.run_id, task.task_id)
+            if checkpoint is not None and checkpoint.status == "completed":
+                if checkpoint.input_fingerprint == self._task_fingerprint(task):
+                    task.status = "completed"
+                else:
+                    task.status = "pending"
         self.should_cancel = should_cancel or (lambda: False)
         self.progress_callback = progress_callback
         self.llm_client = llm_client
@@ -154,6 +163,32 @@ class TaskExecutor:
                     output=persisted.output,
                     metadata=persisted.metadata,
                 )
+
+    @staticmethod
+    def _task_fingerprint(task: ResearchTask) -> str:
+        payload = task.model_dump(exclude={"status"})
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    def _save_task_checkpoint(
+        self,
+        task: ResearchTask,
+        status: str,
+        result: dict | None = None,
+        error: str | None = None,
+    ) -> None:
+        self._ensure_active()
+        self.database.save_task_checkpoint(
+            TaskCheckpoint(
+                checkpoint_id=f"{self.run_id}:{task.task_id}",
+                run_id=self.run_id,
+                task_id=task.task_id,
+                input_fingerprint=self._task_fingerprint(task),
+                status=status,
+                result=result or {},
+                error=(error or "")[:2000] or None,
+            )
+        )
 
     def get_ready_tasks(
         self,
@@ -318,6 +353,18 @@ class TaskExecutor:
         """
 
         self._ensure_active()
+        checkpoint = self.database.get_task_checkpoint(self.run_id, task.task_id)
+        fingerprint = self._task_fingerprint(task)
+        if (
+            checkpoint is not None
+            and checkpoint.status == "completed"
+            and checkpoint.input_fingerprint == fingerprint
+        ):
+            task.status = "completed"
+            self.completed_tasks.add(task.task_id)
+            return True
+
+        self._save_task_checkpoint(task, "running")
         print(
             f"Executing: {task.task_id} - "
             f"{task.description}"
@@ -341,6 +388,7 @@ class TaskExecutor:
                 task.task_id
             ] = result
 
+            self._save_task_checkpoint(task, "completed", {"task_result": result})
             task.status = "completed"
 
             self._ensure_active()
@@ -411,6 +459,7 @@ class TaskExecutor:
             self._transition_run(
                 ResearchRunStatus.BLOCKED
             )
+            self._save_task_checkpoint(task, "blocked")
 
             return False
 
@@ -444,6 +493,7 @@ class TaskExecutor:
             self._transition_run(
                 ResearchRunStatus.BLOCKED
             )
+            self._save_task_checkpoint(task, "blocked")
 
             return False
 
@@ -477,6 +527,7 @@ class TaskExecutor:
             self._transition_run(
                 ResearchRunStatus.BLOCKED
             )
+            self._save_task_checkpoint(task, "blocked")
 
             return False
 
@@ -509,6 +560,7 @@ class TaskExecutor:
                     run
                 )
 
+            self._save_task_checkpoint(task, "failed", error=str(exc))
             self._transition_run(
                 ResearchRunStatus.FAILED
             )
@@ -1160,8 +1212,15 @@ Return ONLY one valid JSON object with exactly these top-level fields:
         """Run task-declared experiments only through injected trusted adapters."""
         results = []
         for spec in task.experiments:
+            spec_identity = json.dumps(
+                spec.model_dump(), sort_keys=True, separators=(",", ":"), default=str
+            )
+            experiment_id = str(uuid.uuid5(
+                uuid.NAMESPACE_URL,
+                f"aura:experiment:{self.run_id}:{task.task_id}:{len(results)}:{spec_identity}",
+            ))
             definition = ExperimentDefinition(
-                experiment_id=str(uuid.uuid4()),
+                experiment_id=experiment_id,
                 run_id=self.run_id,
                 task_id=task.task_id,
                 **spec.model_dump(),
@@ -1294,9 +1353,26 @@ Return ONLY one valid JSON object with exactly these top-level fields:
         record directly.
         """
 
-        result_id = str(
-            uuid.uuid4()
-        )
+        identity_payload = {
+            "task_fingerprint": self._task_fingerprint(task),
+            "tool_id": tool_name,
+            "implementation_id": implementation.implementation_id,
+            "implementation_version": implementation.version,
+            "dependency_context": self.build_task_context(task),
+        }
+        identity = json.dumps(identity_payload, sort_keys=True, separators=(",", ":"), default=str)
+        result_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"aura:tool:{self.run_id}:{identity}"))
+        existing = self.database.get_execution_result(result_id)
+        if existing is not None and existing.status == "success":
+            self.context.add_result(
+                result_id=existing.result_id,
+                task_id=existing.task_id,
+                tool_id=existing.tool_id,
+                status=existing.status,
+                output=existing.output,
+                metadata=existing.metadata,
+            )
+            return existing
 
         try:
             if tool_name == "literature_search":
