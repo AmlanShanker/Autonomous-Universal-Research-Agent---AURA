@@ -7,6 +7,7 @@ from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
+from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -29,6 +30,7 @@ class InMemoryDatabase(Database):
         self.research_memory: dict[str, ResearchMemoryItem] = {}
         self.research_reports: dict[str, ResearchReport] = {}
         self.research_jobs: dict[str, ResearchJob] = {}
+        self.research_job_attempts: dict[str, ResearchJobAttempt] = {}
         self._job_lock = Lock()
 
     def save_research_report(self, report: ResearchReport) -> None:
@@ -105,6 +107,17 @@ class InMemoryDatabase(Database):
             job.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
             job.touch()
             return True
+
+    def save_research_job_attempt(self, attempt: ResearchJobAttempt) -> None:
+        with self._job_lock:
+            self.research_job_attempts[attempt.attempt_id] = attempt
+
+    def list_research_job_attempts(self, job_id: str) -> list[ResearchJobAttempt]:
+        with self._job_lock:
+            return sorted(
+                (item for item in self.research_job_attempts.values() if item.job_id == job_id),
+                key=lambda item: item.attempt_number,
+            )
 
     def save_research_task(self, task: ResearchTask) -> None:
         self.research_tasks[task.task_id] = task
