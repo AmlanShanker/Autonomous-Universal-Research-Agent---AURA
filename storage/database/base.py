@@ -1,7 +1,9 @@
 from abc import ABC, abstractmethod
 
 from memory.research_memory import ResearchMemoryItem
-from storage.models.experiment import (\n    ExperimentArtifact, ExperimentDefinition, ExperimentParameterSnapshot, ExperimentResult,\n)
+from storage.models.experiment import (
+    ExperimentArtifact, ExperimentDefinition, ExperimentParameterSnapshot, ExperimentResult,
+)
 from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
 from storage.models.evidence import ResearchSource
