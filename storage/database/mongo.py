@@ -11,6 +11,7 @@ from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.job_stats import ResearchJobQueueStats
+from storage.models.task_checkpoint import TaskCheckpoint
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -36,6 +37,9 @@ class MongoDatabase(Database):
         self.research_reports = self.db["research_reports"]
         self.research_jobs = self.db["research_jobs"]
         self.research_job_attempts = self.db["research_job_attempts"]
+        self.task_checkpoints = self.db["task_checkpoints"]
+        self.task_checkpoints.create_index("checkpoint_id", unique=True)
+        self.task_checkpoints.create_index([("run_id", 1), ("task_id", 1)], unique=True)
         self.research_job_attempts.create_index([("job_id", 1), ("attempt_number", 1)], unique=True)
         self.research_jobs.create_index(
             "idempotency_key",
@@ -346,6 +350,20 @@ class MongoDatabase(Database):
             document.pop("_id", None)
             attempts.append(ResearchJobAttempt.model_validate(document))
         return attempts
+
+    def save_task_checkpoint(self, checkpoint: TaskCheckpoint) -> None:
+        self.task_checkpoints.replace_one(
+            {"run_id": checkpoint.run_id, "task_id": checkpoint.task_id},
+            checkpoint.model_dump(mode="json"),
+            upsert=True,
+        )
+
+    def get_task_checkpoint(self, run_id: str, task_id: str) -> TaskCheckpoint | None:
+        document = self.task_checkpoints.find_one({"run_id": run_id, "task_id": task_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return TaskCheckpoint.model_validate(document)
 
     def save_research_task(self, task: ResearchTask) -> None:
         self.research_tasks.replace_one({"task_id": task.task_id}, task.model_dump(), upsert=True)

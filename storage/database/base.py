@@ -8,6 +8,7 @@ from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob
 from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.job_stats import ResearchJobQueueStats
+from storage.models.task_checkpoint import TaskCheckpoint
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -85,6 +86,14 @@ class Database(ABC):
 
     @abstractmethod
     def list_research_job_attempts(self, job_id: str) -> list[ResearchJobAttempt]:
+        pass
+
+    @abstractmethod
+    def save_task_checkpoint(self, checkpoint: TaskCheckpoint) -> None:
+        pass
+
+    @abstractmethod
+    def get_task_checkpoint(self, run_id: str, task_id: str) -> TaskCheckpoint | None:
         pass
 
     @abstractmethod

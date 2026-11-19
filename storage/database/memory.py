@@ -10,6 +10,7 @@ from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.job_stats import ResearchJobQueueStats
+from storage.models.task_checkpoint import TaskCheckpoint
 from storage.models.research import (
     ResearchPlan,
     ResearchRun,
@@ -33,6 +34,7 @@ class InMemoryDatabase(Database):
         self.research_reports: dict[str, ResearchReport] = {}
         self.research_jobs: dict[str, ResearchJob] = {}
         self.research_job_attempts: dict[str, ResearchJobAttempt] = {}
+        self.task_checkpoints: dict[str, TaskCheckpoint] = {}
         self._job_lock = Lock()
 
     def save_research_report(self, report: ResearchReport) -> None:
@@ -239,6 +241,13 @@ class InMemoryDatabase(Database):
                 (item for item in self.research_job_attempts.values() if item.job_id == job_id),
                 key=lambda item: item.attempt_number,
             )
+
+    def save_task_checkpoint(self, checkpoint: TaskCheckpoint) -> None:
+        self.task_checkpoints[checkpoint.checkpoint_id] = checkpoint.model_copy(deep=True)
+
+    def get_task_checkpoint(self, run_id: str, task_id: str) -> TaskCheckpoint | None:
+        checkpoint = self.task_checkpoints.get(f"{run_id}:{task_id}")
+        return checkpoint.model_copy(deep=True) if checkpoint is not None else None
 
     def save_research_task(self, task: ResearchTask) -> None:
         self.research_tasks[task.task_id] = task.model_copy(deep=True)

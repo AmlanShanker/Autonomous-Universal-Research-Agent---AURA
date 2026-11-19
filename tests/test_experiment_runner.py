@@ -151,3 +151,40 @@ def test_experiment_rejects_duplicate_criterion_metrics():
         pass
     else:
         raise AssertionError("Expected duplicate criterion metrics to be rejected.")
+
+
+
+def test_repeated_experiment_execution_reuses_completed_result():
+    database = InMemoryDatabase()
+    calls = []
+
+    def adapter(*, parameters, random_seed):
+        calls.append(random_seed)
+        return {"metrics": {"recall": 0.9, "latency_ms": 50}, "outputs": {"count": 10}}
+
+    runner = ExperimentRunner(database, {"retrieval_benchmark": adapter})
+    experiment = make_experiment()
+    first = runner.run(experiment)
+    second = runner.run(experiment)
+
+    assert first.result_id == second.result_id
+    assert second.status == "completed"
+    assert len(calls) == experiment.repetitions
+
+
+
+def test_changed_experiment_specification_does_not_reuse_stale_result():
+    database = InMemoryDatabase()
+    calls = []
+
+    def adapter(*, parameters, random_seed):
+        calls.append(parameters["chunk_size"])
+        return {"metrics": {"recall": 0.9, "latency_ms": 50}, "outputs": {}}
+
+    runner = ExperimentRunner(database, {"retrieval_benchmark": adapter})
+    first = runner.run(make_experiment())
+    changed = runner.run(make_experiment(parameters={"chunk_size": 512}))
+
+    assert first.result_id == changed.result_id
+    assert changed.status == "completed"
+    assert calls == [256, 256, 512, 512]

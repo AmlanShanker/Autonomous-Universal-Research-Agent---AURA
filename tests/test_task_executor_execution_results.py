@@ -238,11 +238,14 @@ def test_execution_results_use_unique_result_ids(
         database,
     )
 
+    calls = []
+
     def fake_execute(
         *,
         query,
         max_results,
     ):
+        calls.append(query)
         return {
             "query": query,
             "count": 1,
@@ -261,6 +264,7 @@ def test_execution_results_use_unique_result_ids(
 
     task.status = "pending"
     executor.completed_tasks.clear()
+    database.task_checkpoints.clear()
 
     executor.execute_task(
         task
@@ -270,11 +274,12 @@ def test_execution_results_use_unique_result_ids(
         database.execution_results.values()
     )
 
-    assert len(results) == 2
+    assert len(results) == 1
 
     result_ids = {
         result.result_id
         for result in results
     }
 
-    assert len(result_ids) == 2
+    assert len(result_ids) == 1
+    assert calls == ["transformer efficiency"]
