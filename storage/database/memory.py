@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from threading import Lock
+import uuid
 
 from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
@@ -112,6 +113,7 @@ class InMemoryDatabase(Database):
                     job.finished_at = now
                     job.worker_id = None
                     job.lease_expires_at = None
+                    job.lease_token = None
                     job.touch()
                     continue
                 if job.status != ResearchJobStatus.QUEUED and not expired:
@@ -120,25 +122,71 @@ class InMemoryDatabase(Database):
                     job.status = ResearchJobStatus.FAILED
                     job.error = job.error or "Maximum worker attempts exceeded."
                     job.finished_at = now
+                    job.worker_id = None
+                    job.lease_expires_at = None
+                    job.lease_token = None
                     job.touch()
                     continue
                 job.status = ResearchJobStatus.RUNNING
                 job.attempts += 1
                 job.worker_id = worker_id
                 job.lease_expires_at = now + timedelta(seconds=lease_seconds)
+                job.lease_token = uuid.uuid4().hex
                 job.started_at = job.started_at or now
                 job.error = None
                 job.touch()
                 return job
         return None
 
-    def renew_research_job_lease(self, job_id: str, worker_id: str, lease_seconds: int = 3600) -> bool:
+    def renew_research_job_lease(
+        self, job_id: str, worker_id: str, lease_token: str, lease_seconds: int = 3600
+    ) -> bool:
+        now = datetime.now(timezone.utc)
         with self._job_lock:
             job = self.research_jobs.get(job_id)
-            if job is None or job.worker_id != worker_id or job.status not in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}:
+            if (
+                job is None
+                or job.worker_id != worker_id
+                or job.lease_token != lease_token
+                or job.status not in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}
+                or job.lease_expires_at is None
+                or job.lease_expires_at <= now
+            ):
                 return False
-            job.lease_expires_at = datetime.now(timezone.utc) + timedelta(seconds=lease_seconds)
+            job.lease_expires_at = now + timedelta(seconds=lease_seconds)
             job.touch()
+            return True
+
+    def is_research_job_lease_owner(self, job_id: str, worker_id: str, lease_token: str) -> bool:
+        now = datetime.now(timezone.utc)
+        with self._job_lock:
+            job = self.research_jobs.get(job_id)
+            return bool(
+                job is not None
+                and job.worker_id == worker_id
+                and job.lease_token == lease_token
+                and job.status in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}
+                and job.lease_expires_at is not None
+                and job.lease_expires_at > now
+            )
+
+    def save_research_job_if_lease_owner(
+        self, job: ResearchJob, worker_id: str, lease_token: str
+    ) -> bool:
+        now = datetime.now(timezone.utc)
+        with self._job_lock:
+            current = self.research_jobs.get(job.job_id)
+            if (
+                current is None
+                or current.worker_id != worker_id
+                or current.lease_token != lease_token
+                or current.status not in {ResearchJobStatus.RUNNING, ResearchJobStatus.CANCEL_REQUESTED}
+                or current.lease_expires_at is None
+                or current.lease_expires_at <= now
+            ):
+                return False
+            job.touch()
+            self.research_jobs[job.job_id] = job
             return True
 
     def get_research_job_queue_stats(self) -> ResearchJobQueueStats:
