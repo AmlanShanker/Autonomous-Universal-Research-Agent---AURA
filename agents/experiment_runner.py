@@ -52,9 +52,9 @@ class ExperimentRunner:
     def _environment_snapshot(self, experiment: ExperimentDefinition) -> ExperimentEnvironment:
         declared = experiment.environment
         return declared.model_copy(update={
-            "python_version": declared.python_version or sys.version.split()[0],
-            "implementation": declared.implementation or platform.python_implementation(),
-            "platform": declared.platform or platform.platform(),
+            "runtime_python_version": sys.version.split()[0],
+            "runtime_implementation": platform.python_implementation(),
+            "runtime_platform": platform.platform(),
         })
 
     def run(self, experiment: ExperimentDefinition) -> ExperimentResult:
