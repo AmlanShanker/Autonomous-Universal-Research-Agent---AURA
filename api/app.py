@@ -20,6 +20,7 @@ from storage.database.memory import InMemoryDatabase
 from storage.database.mongo import MongoDatabase
 from storage.models.experiment import ExperimentResult
 from storage.models.job import ResearchJob, ResearchJobStatus
+from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.report import ResearchReport
 from storage.models.execution import ExecutionResult
 from storage.models.research import ResearchPlan, ResearchRun, ResearchTask
@@ -240,6 +241,12 @@ def create_app(
         if job is None:
             raise HTTPException(status_code=404, detail="Research job not found.")
         return job
+
+    @app.get("/research/jobs/{job_id}/attempts", response_model=list[ResearchJobAttempt], tags=["execution"])
+    def get_research_job_attempts(job_id: str) -> list[ResearchJobAttempt]:
+        if db.get_research_job(job_id) is None:
+            raise HTTPException(status_code=404, detail="Research job not found.")
+        return db.list_research_job_attempts(job_id)
 
     @app.post("/research/jobs/{job_id}/cancel", response_model=ResearchJob, tags=["execution"])
     def cancel_research_job(job_id: str) -> ResearchJob:
