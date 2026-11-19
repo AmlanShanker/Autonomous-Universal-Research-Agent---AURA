@@ -144,7 +144,7 @@ def test_tool_free_task_without_dependency_evidence_is_not_counted_as_coverage()
     assert "task_empty" in assessment.warnings[0]
 
 
-def test_analysis_prompt_bounds_large_literature_search_evidence():
+def test_analysis_prompt_includes_all_records_in_normal_literature_search_evidence():
     database = InMemoryDatabase()
     run = ResearchRun(
         run_id="run-bounded-analysis",
@@ -196,7 +196,7 @@ def test_analysis_prompt_bounds_large_literature_search_evidence():
         "findings": ["The retrieved set contains literature records."],
         "evidence": [{"source_result_id": "large-search-result", "claim": "The search result contains 25 records."}],
         "artifacts": {},
-        "limitations": ["Only a bounded subset was included in the prompt."],
+        "limitations": ["Record fields were compacted to fit the analysis context."],
         "recommendations": [],
         "metrics": [],
         "uncertainty": [],
@@ -211,9 +211,11 @@ def test_analysis_prompt_bounds_large_literature_search_evidence():
     )
     executor.run()
     assert llm.prompt is not None
-    assert len(llm.prompt) < 15000
-    assert "unique-tail-0" not in llm.prompt
-    assert '"records_omitted": 21' in llm.prompt
+    assert llm.prompt is not None
+    assert "Paper 0" in llm.prompt
+    assert "Paper 24" in llm.prompt
+    assert '"records_included": 25' in llm.prompt
+    assert '"records_omitted": 0' in llm.prompt
     assert "large-search-result" in llm.prompt
     stored = database.list_execution_results_for_run(run.run_id)
     original = next(item for item in stored if item.result_id == "large-search-result")
