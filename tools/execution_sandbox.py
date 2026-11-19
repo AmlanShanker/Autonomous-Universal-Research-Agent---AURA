@@ -29,8 +29,6 @@ class ToolExecutionPolicy:
 
 
 class ToolExecutionSandbox:
-    _default_slots = threading.BoundedSemaphore(4)
-
     """
     Enforce a bounded execution boundary for trusted built-in adapters.
 
@@ -39,6 +37,8 @@ class ToolExecutionSandbox:
     adapters must additionally enforce their own connect/read timeouts and
     transfer limits.
     """
+
+    _default_slots = threading.BoundedSemaphore(4)
 
     def __init__(self, policy: ToolExecutionPolicy | None = None):
         self.policy = policy or ToolExecutionPolicy()
