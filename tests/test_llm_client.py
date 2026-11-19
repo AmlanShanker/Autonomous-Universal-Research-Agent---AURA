@@ -3,7 +3,9 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from openai import APIConnectionError, BadRequestError\n\nfrom agents.llm_client import LLMClient
+from openai import APIConnectionError, BadRequestError
+
+from agents.llm_client import LLMClient
 
 
 def isolate_environment(monkeypatch):
