@@ -238,11 +238,14 @@ def test_execution_results_use_unique_result_ids(
         database,
     )
 
+    calls = []
+
     def fake_execute(
         *,
         query,
         max_results,
     ):
+        calls.append(query)
         return {
             "query": query,
             "count": 1,
@@ -279,3 +282,4 @@ def test_execution_results_use_unique_result_ids(
     }
 
     assert len(result_ids) == 1
+    assert calls == ["transformer efficiency"]
