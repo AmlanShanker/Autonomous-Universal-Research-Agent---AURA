@@ -1007,15 +1007,64 @@ Return ONLY one valid JSON object with exactly these top-level fields:
 
             collect_result_ids(dependency_items)
             collect_result_ids(experiment_results)
-            for evidence_item in analysis["evidence"]:
-                if not isinstance(evidence_item, dict):
-                    raise ValueError("Each evidence entry must be an object.")
-                source_id = evidence_item.get("source_result_id")
-                claim = evidence_item.get("claim")
-                if source_id not in allowed_result_ids or not isinstance(claim, str) or not claim.strip():
+            def invalid_evidence_entries(candidate):
+                invalid = []
+                for evidence_item in candidate["evidence"]:
+                    if not isinstance(evidence_item, dict):
+                        invalid.append("Evidence entries must be objects.")
+                        continue
+                    source_id = evidence_item.get("source_result_id")
+                    claim = evidence_item.get("claim")
+                    if source_id not in allowed_result_ids or not isinstance(claim, str) or not claim.strip():
+                        invalid.append(
+                            f"Invalid evidence reference {source_id!r}; claim={claim!r}"
+                        )
+                return invalid
+
+            invalid_evidence = invalid_evidence_entries(analysis)
+            if invalid_evidence:
+                # Give the model one bounded opportunity to repair citation IDs.
+                # Never rewrite or infer citations in application code.
+                allowed_ids_text = json.dumps(sorted(allowed_result_ids))
+                correction_prompt = (
+                    prompt
+                    + "\\n\\nYour previous JSON had invalid evidence references:\\n"
+                    + json.dumps(invalid_evidence, ensure_ascii=False)
+                    + "\\nThe ONLY permitted source_result_id values are: "
+                    + allowed_ids_text
+                    + "\\nReturn the complete corrected JSON object. Preserve every claim "
+                    "only if it is supported by one of those supplied results. Do not invent IDs."
+                    + "\\nPrevious response:\\n"
+                    + text
+                )
+                corrected_response = self.llm_client.generate(correction_prompt)
+                if not isinstance(corrected_response, str) or not corrected_response.strip():
+                    raise ValueError("LLM returned an empty evidence-correction response.")
+                corrected_text = corrected_response.strip()
+                if corrected_text.startswith("```"):
+                    corrected_lines = corrected_text.splitlines()
+                    if corrected_lines and corrected_lines[0].strip().startswith("```"):
+                        corrected_lines = corrected_lines[1:]
+                    if corrected_lines and corrected_lines[-1].strip() == "```":
+                        corrected_lines = corrected_lines[:-1]
+                    corrected_text = "\\n".join(corrected_lines).strip()
+                corrected_start = corrected_text.find("{")
+                if corrected_start < 0:
+                    raise ValueError("LLM evidence-correction response did not contain JSON.")
+                corrected_analysis, _ = json.JSONDecoder().raw_decode(corrected_text[corrected_start:])
+                if not isinstance(corrected_analysis, dict) or set(corrected_analysis) != required_fields:
+                    raise ValueError("LLM evidence-correction response has an invalid field set.")
+                if not isinstance(corrected_analysis["findings"], list) or not isinstance(corrected_analysis["evidence"], list):
+                    raise ValueError("LLM evidence-correction findings and evidence must be arrays.")
+                if not isinstance(corrected_analysis["artifacts"], dict):
+                    raise ValueError("LLM evidence-correction artifacts must be an object.")
+                if invalid_evidence_entries(corrected_analysis):
                     raise ValueError(
-                        "Every evidence claim must reference a supplied dependency result ID."
+                        "LLM evidence-correction response still contains invalid dependency references."
                     )
+                analysis = corrected_analysis
+            if analysis["findings"] and not analysis["evidence"]:
+                raise ValueError("Findings require at least one traceable evidence reference.")
             if analysis["findings"] and not analysis["evidence"]:
                 raise ValueError("Findings require at least one traceable evidence reference.")
             analysis_status = "completed"
