@@ -7,6 +7,7 @@ from memory.research_memory import ResearchMemoryItem
 from storage.database.base import Database
 from storage.models.experiment import ExperimentDefinition, ExperimentResult
 from storage.models.execution import ExecutionResult
+from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
@@ -38,6 +39,9 @@ class MongoDatabase(Database):
         self.research_jobs = self.db["research_jobs"]
         self.research_job_attempts = self.db["research_job_attempts"]
         self.task_checkpoints = self.db["task_checkpoints"]
+        self.research_sources = self.db["research_sources"]
+        self.research_sources.create_index("source_id", unique=True)
+        self.research_sources.create_index("canonical_id", unique=True)
         self.task_checkpoints.create_index("checkpoint_id", unique=True)
         self.task_checkpoints.create_index([("run_id", 1), ("task_id", 1)], unique=True)
         self.research_job_attempts.create_index([("job_id", 1), ("attempt_number", 1)], unique=True)
