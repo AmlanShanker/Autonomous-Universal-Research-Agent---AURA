@@ -224,7 +224,8 @@ class DatasetDownloadTool(ResearchTool):
         if not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("Dataset source URL is invalid.")
 
-        if parsed.port not in (None, 80, 443):
+        allowed_port = 80 if parsed.scheme == "http" else 443
+        if parsed.port not in (None, allowed_port):
             raise ValueError("Dataset source URL uses a disallowed port.")
 
         hostname = parsed.hostname.rstrip(".").lower()
