@@ -195,6 +195,8 @@ class InMemoryDatabase(Database):
                 job.worker_id = current.worker_id
                 job.lease_token = current.lease_token
                 job.lease_expires_at = current.lease_expires_at
+                if current.status == ResearchJobStatus.CANCEL_REQUESTED and job.status == ResearchJobStatus.RUNNING:
+                    job.status = ResearchJobStatus.CANCEL_REQUESTED
             job.touch()
             self.research_jobs[job.job_id] = job.model_copy(deep=True)
             return True
