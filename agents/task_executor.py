@@ -29,7 +29,7 @@ from tools.builder import (
 )
 from tools.registry import ToolRegistry
 from tools.execution_sandbox import ToolExecutionSandbox
-from observability import METRICS, bind_context, span
+from observability import METRICS, bind_context, configure_logging, span
 
 
 class TaskExecutor:
@@ -76,6 +76,7 @@ class TaskExecutor:
         progress_callback: Callable[[int, int], None] | None = None,
         llm_client=None,
     ):
+        configure_logging()
         self.tasks = {
             task.task_id: task
             for task in tasks
