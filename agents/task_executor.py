@@ -29,6 +29,7 @@ from tools.builder import (
 )
 from tools.registry import ToolRegistry
 from tools.execution_sandbox import ToolExecutionSandbox
+from observability import METRICS, bind_context, configure_logging, span
 
 
 class TaskExecutor:
@@ -75,6 +76,7 @@ class TaskExecutor:
         progress_callback: Callable[[int, int], None] | None = None,
         llm_client=None,
     ):
+        configure_logging()
         self.tasks = {
             task.task_id: task
             for task in tasks
@@ -341,6 +343,21 @@ class TaskExecutor:
         )
 
     def execute_task(
+        self,
+        task: ResearchTask,
+    ) -> bool:
+        """Execute a task with correlated tracing and bounded outcome metrics."""
+        with bind_context(run_id=self.run_id, task_id=task.task_id):
+            try:
+                with span("task.execute", component="task_executor", operation="execute_task"):
+                    result = self._execute_task(task)
+            except Exception:
+                METRICS.increment("aura_tasks", outcome="failed")
+                raise
+            METRICS.increment("aura_tasks", outcome="completed" if result else "blocked")
+            return result
+
+    def _execute_task(
         self,
         task: ResearchTask,
     ) -> bool:
@@ -1387,6 +1404,29 @@ Return ONLY one valid JSON object with exactly these top-level fields:
             )
 
     def _execute_tool(
+        self,
+        tool_name: str,
+        tool,
+        implementation,
+        task: ResearchTask,
+    ) -> ExecutionResult:
+        """Execute a registered tool with correlated tracing and outcome metrics."""
+        with bind_context(run_id=self.run_id, task_id=task.task_id):
+            METRICS.increment("aura_tool_executions", tool=tool_name, outcome="started")
+            try:
+                with span("tool.execute", component="tool", operation=tool_name):
+                    result = self._execute_tool_impl(tool_name, tool, implementation, task)
+            except Exception:
+                METRICS.increment("aura_tool_executions", tool=tool_name, outcome="failed")
+                raise
+            METRICS.increment(
+                "aura_tool_executions",
+                tool=tool_name,
+                outcome="success" if result.status == "success" else "failed",
+            )
+            return result
+
+    def _execute_tool_impl(
         self,
         tool_name: str,
         tool,

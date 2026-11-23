@@ -1,7 +1,9 @@
+import logging
 import os
 import socket
 import uuid
 from datetime import datetime, timezone
+from contextvars import copy_context
 from threading import Event, Thread
 from collections.abc import Callable
 
@@ -14,6 +16,7 @@ from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt, ResearchJobAttemptStatus
 from storage.models.research import ResearchRunStatus
 from tools.registry import ToolRegistry, build_default_tool_registry
+from observability import METRICS, bind_context, configure_logging, current_context, new_trace_id, span
 
 
 class ResearchWorker:
@@ -27,6 +30,7 @@ class ResearchWorker:
         experiment_adapters: dict | None = None,
         lease_seconds: int = 3600,
     ):
+        configure_logging()
         self.database = database
         self.worker_id = worker_id or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
         self.tool_registry_factory = tool_registry_factory or build_default_tool_registry
@@ -41,11 +45,23 @@ class ResearchWorker:
         if not lease_token:
             return self.database.get_research_job(job.job_id)
 
+        with bind_context(trace_id=new_trace_id(), job_id=job.job_id, run_id=job.run_id, worker_id=self.worker_id):
+            with span("worker.process_job", component="worker"):
+                return self._process_claimed_job(job, lease_token)
+
+    def _process_claimed_job(self, job: ResearchJob, lease_token: str) -> ResearchJob | None:
         attempt = self._begin_attempt(job)
         outcome: ResearchJobStatus | None = None
+        failure_type: str | None = None
         try:
             outcome = self._execute(job, lease_token)
         except Exception as exc:
+            import logging
+            failure_type = type(exc).__name__
+            logging.getLogger("aura.worker").exception(
+                "Research job attempt failed",
+                extra={"event": "worker.job_failed", "error_type": failure_type},
+            )
             outcome = self._finish_failed(job, lease_token, str(exc))
         finally:
             if outcome is None:
@@ -61,10 +77,18 @@ class ResearchWorker:
                 attempt_status = ResearchJobAttemptStatus.FAILED
                 latest = self.database.get_research_job(job.job_id)
                 attempt_error = latest.error if latest is not None else None
-            attempt.finish(attempt_status, attempt_error)
+            attempt.finish(
+                attempt_status,
+                attempt_error,
+                error_type=failure_type,
+                trace_id=current_context().get("trace_id"),
+            )
             self.database.save_research_job_attempt(attempt)
+            METRICS.increment(
+                "aura_worker_jobs",
+                outcome=outcome.value if outcome is not None else "lease_lost",
+            )
         return self.database.get_research_job(job.job_id)
-
     def _begin_attempt(self, job: ResearchJob) -> ResearchJobAttempt:
         # A previous RUNNING record means its worker disappeared before it
         # could close the attempt; the new lease claim proves that attempt expired.
@@ -177,14 +201,30 @@ class ResearchWorker:
                     renewed = self.database.renew_research_job_lease(
                         job.job_id, self.worker_id, lease_token, self.lease_seconds
                     )
-                except Exception:
+                except Exception as exc:
+                    METRICS.increment("aura_worker_lease_renewals", outcome="error")
+                    logging.getLogger("aura.worker").exception(
+                        "Worker lease renewal failed",
+                        extra={"event": "worker.lease_renewal_failed", "error_type": type(exc).__name__},
+                    )
                     lease_lost.set()
                     return
                 if not renewed:
+                    METRICS.increment("aura_worker_lease_renewals", outcome="rejected")
+                    logging.getLogger("aura.worker").warning(
+                        "Worker lease ownership was lost",
+                        extra={"event": "worker.lease_lost"},
+                    )
                     lease_lost.set()
                     return
+                METRICS.increment("aura_worker_lease_renewals", outcome="success")
 
-        heartbeat_thread = Thread(target=heartbeat, daemon=True)
+        heartbeat_context = copy_context()
+        heartbeat_thread = Thread(
+            target=heartbeat_context.run,
+            args=(heartbeat,),
+            daemon=True,
+        )
         heartbeat_thread.start()
 
         try:
@@ -225,10 +265,10 @@ class ResearchWorker:
             latest_job.worker_id = None
             latest_job.lease_token = None
             return ResearchJobStatus.CANCELLED if self._save_owned(latest_job, lease_token) else None
-        except Exception as exc:
+        except Exception:
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=2)
-            return self._finish_failed(job, lease_token, str(exc))
+            raise
 
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=2)
@@ -300,8 +340,12 @@ def main() -> None:
     from dotenv import load_dotenv
 
     load_dotenv()
+    configure_logging()
     worker = build_worker_from_environment()
-    print(f"AURA worker {worker.worker_id} started.")
+    import logging
+    logging.getLogger("aura.worker").info(
+        "AURA worker started", extra={"event": "worker.started", "component": "worker"}
+    )
     worker.run_forever()
 
 
