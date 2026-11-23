@@ -29,7 +29,7 @@ from storage.models.execution import ExecutionResult
 from storage.models.research import ResearchPlan, ResearchRun, ResearchTask
 from api.security import APIKeyAuthenticator, InMemoryRateLimiter, client_identity
 from observability import (
-    METRICS, bind_context, configure_logging, current_span_id, trace_id_from_header,
+    METRICS, bind_context, configure_logging, current_span_id, span, trace_id_from_header,
 )
 from tools.registry import (
     ToolRegistry,
