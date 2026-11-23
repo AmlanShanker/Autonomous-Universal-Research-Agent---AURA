@@ -53,8 +53,8 @@ class LLMClient:
     )
 
     def __init__(self):
-        configure_logging()
         load_dotenv()
+        configure_logging()
         self.provider = os.getenv("LLM_PROVIDER", "groq").strip().lower()
         primary_config = self._provider_config(self.provider, "LLM_PROVIDER")
         self.model = self._configured_model(primary_config, self.provider)
