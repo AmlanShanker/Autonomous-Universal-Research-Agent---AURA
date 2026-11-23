@@ -46,7 +46,7 @@ class ResearchWorker:
             with span("worker.process_job", component="worker"):
                 return self._process_claimed_job(job, lease_token)
 
-    def _process_claimed_job(self, job: ResearchJob, lease_token: str) -> ResearchJob:
+    def _process_claimed_job(self, job: ResearchJob, lease_token: str) -> ResearchJob | None:
         attempt = self._begin_attempt(job)
         outcome: ResearchJobStatus | None = None
         failure_type: str | None = None
