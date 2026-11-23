@@ -14,7 +14,7 @@ from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt, ResearchJobAttemptStatus
 from storage.models.research import ResearchRunStatus
 from tools.registry import ToolRegistry, build_default_tool_registry
-from observability import METRICS, bind_context, configure_logging, current_context, span
+from observability import METRICS, bind_context, configure_logging, current_context, new_trace_id, span
 
 
 class ResearchWorker:
@@ -42,7 +42,7 @@ class ResearchWorker:
         if not lease_token:
             return self.database.get_research_job(job.job_id)
 
-        with bind_context(job_id=job.job_id, run_id=job.run_id, worker_id=self.worker_id):
+        with bind_context(trace_id=new_trace_id(), job_id=job.job_id, run_id=job.run_id, worker_id=self.worker_id):
             with span("worker.process_job", component="worker"):
                 return self._process_claimed_job(job, lease_token)
 
@@ -246,10 +246,10 @@ class ResearchWorker:
             latest_job.worker_id = None
             latest_job.lease_token = None
             return ResearchJobStatus.CANCELLED if self._save_owned(latest_job, lease_token) else None
-        except Exception as exc:
+        except Exception:
             heartbeat_stop.set()
             heartbeat_thread.join(timeout=2)
-            return self._finish_failed(job, lease_token, str(exc))
+            raise
 
         heartbeat_stop.set()
         heartbeat_thread.join(timeout=2)
