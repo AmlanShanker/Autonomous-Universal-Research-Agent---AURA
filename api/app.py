@@ -169,11 +169,14 @@ def create_app(
                 )
                 return response
             except Exception as exc:
-                METRICS.increment("aura_http_requests", method=request.method, route=request.url.path, status="500")
+                route = request.scope.get("route")
+                route_name = getattr(route, "path", "unmatched")
+                METRICS.increment("aura_http_requests", method=request.method, route=route_name, status="500")
+                METRICS.observe("aura_http_request_duration_ms", (time.perf_counter() - started) * 1000, method=request.method, route=route_name)
                 logging.getLogger("aura.api").exception(
                     "HTTP request failed",
                     extra={"event": "http.error", "method": request.method,
-                           "route": request.url.path, "error_type": type(exc).__name__},
+                           "route": route_name, "error_type": type(exc).__name__},
                 )
                 raise
 
