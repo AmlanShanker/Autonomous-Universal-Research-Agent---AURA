@@ -8,6 +8,8 @@ from observability import (
     MetricsRegistry,
     bind_context,
     trace_id_from_header,
+    current_span_id,
+    span,
 )
 from api.app import create_app
 from storage.database.memory import InMemoryDatabase
@@ -114,3 +116,18 @@ def test_job_diagnostics_includes_durable_attempt_failure_context(monkeypatch):
     assert payload["job_id"] == "job-1"
     assert payload["attempts"][0]["error_type"] == "RuntimeError"
     assert payload["attempts"][0]["trace_id"] == "a" * 32
+
+ 
+def test_nested_spans_keep_parent_relationships():
+    formatter = JSONFormatter()
+    with span("outer", component="test"):
+        parent_id = current_span_id()
+        with span("inner", component="test"):
+            child_id = current_span_id()
+            payload = json.loads(formatter.format(_record("nested event")))
+
+    assert parent_id is not None
+    assert child_id is not None
+    assert child_id != parent_id
+    assert payload["span_id"] == child_id
+    assert payload["parent_span_id"] == parent_id
