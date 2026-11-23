@@ -117,7 +117,7 @@ def create_app(
         import logging
         import time
         started = time.perf_counter()
-        with bind_context(trace_id=trace_id, request_id=request_id):
+        with bind_context(trace_id=trace_id, request_id=request_id), span("api.request", component="api", operation=request.method):
             try:
                 principal = authenticator.authenticate(request.headers.get("authorization"))
                 client_host = request.client.host if request.client else None
@@ -154,7 +154,7 @@ def create_app(
                     response = await call_next(request)
 
                 route = request.scope.get("route")
-                route_name = getattr(route, "path", request.url.path)
+                route_name = getattr(route, "path", "unmatched")
                 response.headers["X-RateLimit-Limit"] = str(rate_limiter.limit)
                 response.headers["X-RateLimit-Remaining"] = str(remaining)
                 response.headers["X-RateLimit-Reset-Seconds"] = str(reset_seconds)
