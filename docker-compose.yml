@@ -5,8 +5,12 @@ services:
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-aura}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:-aura_app}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:?Set MONGO_APP_PASSWORD in .env}
     volumes:
       - aura-mongodb-data:/data/db
+      - ./deploy/mongo-init.js:/docker-entrypoint-initdb.d/10-create-app-user.js:ro
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
@@ -26,7 +30,7 @@ services:
       - .env
     environment:
       AURA_DATABASE_BACKEND: mongodb
-      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+      MONGODB_URI: mongodb://${MONGO_APP_USERNAME:-aura_app}:${MONGO_APP_PASSWORD}@mongodb:27017/${MONGODB_DATABASE:-aura}?authSource=${MONGODB_DATABASE:-aura}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-aura}
       AURA_API_AUTH_ENABLED: "true"
       AURA_API_KEYS: ${AURA_API_KEYS:?Set AURA_API_KEYS in .env}
@@ -55,7 +59,7 @@ services:
       - .env
     environment:
       AURA_DATABASE_BACKEND: mongodb
-      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+      MONGODB_URI: mongodb://${MONGO_APP_USERNAME:-aura_app}:${MONGO_APP_PASSWORD}@mongodb:27017/${MONGODB_DATABASE:-aura}?authSource=${MONGODB_DATABASE:-aura}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-aura}
     depends_on:
       mongodb:
