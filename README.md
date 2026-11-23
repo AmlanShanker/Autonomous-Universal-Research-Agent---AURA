@@ -155,3 +155,97 @@ combines its current status, persisted worker attempts, and task checkpoint
 errors. Attempt diagnostics include the error type and trace ID when a worker
 caught an exception. The existing `/attempts` endpoint remains available for
 the raw attempt history.
+
+
+## Production deployment (Docker Compose)
+
+Phase 20 provides a production-oriented container image and a lightweight Compose deployment:
+
+- **API** — FastAPI/Uvicorn, one process per container, authenticated API access, and an HTTP health check.
+- **Worker** — separate durable-job worker.
+- **Database** — the default deployment connects directly to your existing managed/online MongoDB cluster. MongoDB is not downloaded, run, or persisted on the laptop by default.
+
+### Configure and start (recommended: managed MongoDB)
+
+1. Copy the template and edit the local file:
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+2. Set `AURA_DATABASE_URI` to your existing MongoDB connection URI. Keep the URI private and ensure its database user has only the permissions AURA needs. If `AURA_DATABASE_URI` is blank, the existing `MONGO_URL` setting is used for backward compatibility. Set `MONGODB_DATABASE` to the database name used by AURA. Also replace the example `AURA_API_KEYS` value with a generated key of at least 32 characters and configure your LLM provider key.
+
+   Generate API key material locally:
+
+   ```powershell
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+   Keep `.env` private. It is ignored by Git and must not be committed. Compose forces API authentication on. The configured API key must have the appropriate role (`reader`, `operator`, or `admin`).
+
+3. Start only the API and worker:
+
+   ```powershell
+   docker compose up --build -d
+   docker compose ps
+   Invoke-RestMethod http://127.0.0.1:8000/health
+   ```
+
+4. Follow service logs:
+
+   ```powershell
+   docker compose logs -f api worker
+   ```
+
+The API and worker connect to the same online MongoDB cluster. The database itself stays in the managed service; only application containers, image layers, temporary files, and bounded operational logs occupy local disk. The API binds to `127.0.0.1:8000` by default. Put a TLS-terminating reverse proxy in front of it for remote access. Do not expose the database URI or publish a database port.
+
+### Optional local MongoDB (offline development / isolated testing)
+
+Local MongoDB is disabled by default and only starts when the `local-mongo` Compose profile is explicitly enabled. To keep the normal online URI untouched, create a separate environment file for local development (for example, copy `.env` to `.env.local`) and set `AURA_DATABASE_URI` there to:
+
+```text
+mongodb://aura_app:YOUR_URL_SAFE_APP_PASSWORD@mongodb:27017/aura?authSource=aura
+```
+
+Start the local database first and wait until it reports healthy:
+
+```powershell
+docker compose --env-file .env.local --profile local-mongo up -d mongodb
+docker compose --env-file .env.local --profile local-mongo ps
+```
+
+Then start the application services against it:
+
+```powershell
+docker compose --env-file .env.local --profile local-mongo up --build -d api worker
+```
+
+The local database uses the named `aura-mongodb-data` volume and can consume disk as research data accumulates. Use it only when needed. Return to the managed database by starting the default stack with the regular `.env` file. Do not run `docker compose down -v` unless you intentionally want to permanently delete the local MongoDB volume and all data in it.
+
+### Container releases
+
+Pushing a version tag matching `v*` runs `.github/workflows/publish-container.yml` and publishes the image to GitHub Container Registry (GHCR), tagged with the version and (for non-prerelease tags) `latest`. For example:
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+To deploy a published version, set `AURA_IMAGE` in `.env` to the exact image tag, then run:
+
+```powershell
+docker compose pull
+docker compose up -d --no-build
+```
+
+### Operations, upgrades, and rollback
+
+- Check container readiness with `docker compose ps`; the API health check probes `/health`.
+- Inspect structured service logs with `docker compose logs -f api worker`. Prometheus-compatible process metrics are exposed at `/metrics`; protect this endpoint at the same authenticated API boundary or a trusted gateway.
+- Back up the managed MongoDB database using the provider's supported backup tooling and test restores. For local MongoDB, back up the named volume with MongoDB's supported tooling; a Docker volume is persistence, not a backup.
+- Before an upgrade, take a database backup and record the current image tag. Deploy the new immutable image tag, then verify API health and worker startup.
+- To roll back, set `AURA_IMAGE` to the previous known-good tag and run `docker compose pull` followed by `docker compose up -d --no-build`. Restore the database backup only if the newer application performed an incompatible data migration; the current application does not automatically roll back database contents.
+
+### Deployment boundaries
+
+The container runs as a non-root user and does not execute LLM-generated source code. API and worker use the same configured MongoDB database. Request-rate limiting and observability metrics are process-local, so multiple replicas do not share counters or rate-limit state. Use a shared gateway/limiter and an external metrics collector when scaling horizontally. Use a restricted host/container runtime, network egress controls, TLS, and managed secrets for deployments exposed to untrusted users.

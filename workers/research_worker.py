@@ -12,6 +12,7 @@ from agents.llm_client import LLMClient
 from agents.task_executor import ExecutionCancelled, TaskExecutor
 from storage.database.base import Database
 from storage.database.mongo import MongoDatabase
+from config.database import database_uri_from_environment
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt, ResearchJobAttemptStatus
 from storage.models.research import ResearchRunStatus
@@ -329,9 +330,9 @@ def build_worker_from_environment() -> ResearchWorker:
     backend = os.getenv("AURA_DATABASE_BACKEND", "mongodb").strip().lower()
     if backend != "mongodb":
         raise RuntimeError("The standalone worker requires AURA_DATABASE_BACKEND=mongodb.")
-    uri = os.getenv("MONGO_URL") or os.getenv("MONGODB_URI")
+    uri = database_uri_from_environment()
     if not uri:
-        raise RuntimeError("MONGO_URL or MONGODB_URI is required by the standalone worker.")
+        raise RuntimeError("AURA_DATABASE_URI, MONGO_URL, or MONGODB_URI is required by the standalone worker.")
     database_name = os.getenv("MONGODB_DATABASE", "aura")
     return ResearchWorker(MongoDatabase(uri, database_name))
 

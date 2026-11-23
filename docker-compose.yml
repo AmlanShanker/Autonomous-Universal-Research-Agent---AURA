@@ -1,0 +1,72 @@
+services:
+  # Optional local database for offline development and isolated testing.
+  # The default deployment uses the managed/online MongoDB URI from .env.
+  mongodb:
+    profiles: ["local-mongo"]
+    image: mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:-aura_local_root}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:-local-only-change-this-root-password}
+      MONGO_INITDB_DATABASE: ${MONGODB_DATABASE:-aura}
+      MONGO_APP_USERNAME: ${MONGO_APP_USERNAME:-aura_app}
+      MONGO_APP_PASSWORD: ${MONGO_APP_PASSWORD:-local-only-change-this-app-password}
+    volumes:
+      - aura-mongodb-data:/data/db
+      - ./deploy/mongo-init.js:/docker-entrypoint-initdb.d/10-create-app-user.js:ro
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - aura-internal
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${AURA_IMAGE:-aura:local}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AURA_DATABASE_BACKEND: mongodb
+      AURA_DATABASE_URI: ${AURA_DATABASE_URI:-${MONGO_URL:?Set AURA_DATABASE_URI or MONGO_URL in .env}}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-aura}
+      AURA_API_AUTH_ENABLED: "true"
+      AURA_API_KEYS: ${AURA_API_KEYS:?Set AURA_API_KEYS in .env}
+    ports:
+      - "${AURA_BIND_ADDRESS:-127.0.0.1}:${AURA_API_PORT:-8000}:8000"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - aura-internal
+
+  worker:
+    image: ${AURA_IMAGE:-aura:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "workers.research_worker"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AURA_DATABASE_BACKEND: mongodb
+      AURA_DATABASE_URI: ${AURA_DATABASE_URI:-${MONGO_URL:?Set AURA_DATABASE_URI or MONGO_URL in .env}}
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-aura}
+    networks:
+      - aura-internal
+
+volumes:
+  aura-mongodb-data:
+
+networks:
+  aura-internal:
+    driver: bridge

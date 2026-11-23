@@ -48,7 +48,7 @@ class ToolBuilder:
     ):
         if max_generation_attempts < 1:
             raise ValueError("max_generation_attempts must be at least 1.")
-        self.llm_client = llm_client if llm_client is not None else LLMClient()
+        self.llm_client = llm_client
         self.max_generation_attempts = max_generation_attempts
 
     def build(self, request: ToolBuildRequest) -> GeneratedTool:
@@ -86,6 +86,8 @@ only; AURA will not install them automatically.
         last_error = None
         for attempt in range(1, self.max_generation_attempts + 1):
             try:
+                if self.llm_client is None:
+                    self.llm_client = LLMClient()
                 response = self.llm_client.generate(current_prompt)
                 data = self._parse_json(response)
                 tool = self._tool_from_data(data)
