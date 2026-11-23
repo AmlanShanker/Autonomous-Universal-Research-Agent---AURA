@@ -8,18 +8,7 @@ services:
     volumes:
       - aura-mongodb-data:/data/db
     healthcheck:
-      test:
-        - CMD-SHELL
-        - mongosh
-        - --quiet
-        - --eval
-        - db.adminCommand('ping').ok
-        - --username
-        - $MONGO_INITDB_ROOT_USERNAME
-        - --password
-        - $MONGO_INITDB_ROOT_PASSWORD
-        - --authenticationDatabase
-        - admin
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
       interval: 10s
       timeout: 5s
       retries: 10
