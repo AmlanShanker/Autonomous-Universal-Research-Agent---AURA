@@ -28,6 +28,7 @@ _context = {
     for name in _CONTEXT_FIELDS
 }
 _span_id = contextvars.ContextVar("aura_span_id", default=None)
+_parent_span_id = contextvars.ContextVar("aura_parent_span_id", default=None)
 _SECRET_PATTERNS = (
     (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"), r"\1[REDACTED]"),
     (re.compile(r"(?i)((?:api[_-]?key|token|password|secret)\s*[=:]\s*)[^\s,;]+"), r"\1[REDACTED]"),
@@ -62,8 +63,11 @@ class JSONFormatter(logging.Formatter):
             if value:
                 payload[name] = value
         span_id = _span_id.get()
+        parent_span_id = _parent_span_id.get()
         if span_id:
             payload["span_id"] = span_id
+        if parent_span_id:
+            payload["parent_span_id"] = parent_span_id
         for name in ("event", "duration_ms", "status_code", "method", "route", "component", "error_type", "provider", "operation"):
             value = getattr(record, name, None)
             if value is not None:
@@ -109,6 +113,10 @@ def current_context() -> dict[str, str]:
 
 def new_trace_id() -> str:
     return uuid.uuid4().hex
+
+
+def current_span_id() -> str | None:
+    return _span_id.get()
 
 
 def trace_id_from_header(value: str | None) -> str:
@@ -192,6 +200,7 @@ METRICS = MetricsRegistry()
 def span(name: str, **attributes) -> Iterator[None]:
     """Record a local correlated span and duration without exporting payload data."""
     logger = logging.getLogger("aura.trace")
+    parent_token = _parent_span_id.set(_span_id.get())
     current_span = uuid.uuid4().hex[:16]
     token = _span_id.set(current_span)
     started = time.perf_counter()
@@ -218,3 +227,4 @@ def span(name: str, **attributes) -> Iterator[None]:
             extra={"event": "span.finished", "component": name, "duration_ms": round(duration, 3)},
         )
         _span_id.reset(token)
+        _parent_span_id.reset(parent_token)
