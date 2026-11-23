@@ -1409,6 +1409,29 @@ Return ONLY one valid JSON object with exactly these top-level fields:
         implementation,
         task: ResearchTask,
     ) -> ExecutionResult:
+        """Execute a registered tool with correlated tracing and outcome metrics."""
+        with bind_context(run_id=self.run_id, task_id=task.task_id):
+            METRICS.increment("aura_tool_executions", tool=tool_name, outcome="started")
+            try:
+                with span("tool.execute", component="tool", operation=tool_name):
+                    result = self._execute_tool_impl(tool_name, tool, implementation, task)
+            except Exception:
+                METRICS.increment("aura_tool_executions", tool=tool_name, outcome="failed")
+                raise
+            METRICS.increment(
+                "aura_tool_executions",
+                tool=tool_name,
+                outcome="success" if result.status == "success" else "failed",
+            )
+            return result
+
+    def _execute_tool_impl(
+        self,
+        tool_name: str,
+        tool,
+        implementation,
+        task: ResearchTask,
+    ) -> ExecutionResult:
         """
         Execute one selected executable tool.
 
