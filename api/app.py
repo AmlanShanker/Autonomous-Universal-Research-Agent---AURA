@@ -1,4 +1,5 @@
 import os
+import re
 import uuid
 from datetime import datetime, timezone
 from collections.abc import Callable
@@ -111,7 +112,12 @@ def create_app(
     @app.middleware("http")
     async def enforce_api_security(request: Request, call_next):
         trace_id = trace_id_from_header(request.headers.get("traceparent"))
-        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        requested_request_id = request.headers.get("x-request-id", "")
+        request_id = (
+            requested_request_id
+            if re.fullmatch(r"[A-Za-z0-9._-]{1,128}", requested_request_id)
+            else uuid.uuid4().hex
+        )
         request.state.trace_id = trace_id
         request.state.request_id = request_id
         import logging
