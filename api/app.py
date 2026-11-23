@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from collections.abc import Callable
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,9 @@ from storage.models.report import ResearchReport
 from storage.models.execution import ExecutionResult
 from storage.models.research import ResearchPlan, ResearchRun, ResearchTask
 from api.security import APIKeyAuthenticator, InMemoryRateLimiter, client_identity
+from observability import (
+    METRICS, bind_context, configure_logging, trace_id_from_header,
+)
 from tools.registry import (
     ToolRegistry,
     build_default_tool_registry,
@@ -74,6 +77,7 @@ def create_app(
     experiment_adapters: dict | None = None,
 ) -> FastAPI:
     """Create an injectable AURA API application for production and tests."""
+    configure_logging()
     db = database or _default_database()
     adapters = experiment_adapters if experiment_adapters is not None else build_default_experiment_adapters()
     registry_factory = tool_registry_factory or build_default_tool_registry
@@ -106,45 +110,77 @@ def create_app(
 
     @app.middleware("http")
     async def enforce_api_security(request: Request, call_next):
-        principal = authenticator.authenticate(request.headers.get("authorization"))
-        client_host = request.client.host if request.client else None
-        if authenticator.enabled and principal is not None:
-            identity = f"key:{principal.key_id}"
-        else:
-            # Do not trust X-Forwarded-For unless a trusted proxy layer is configured.
-            identity = client_identity(client_host)
+        trace_id = trace_id_from_header(request.headers.get("traceparent"))
+        request_id = request.headers.get("x-request-id") or uuid.uuid4().hex
+        request.state.trace_id = trace_id
+        request.state.request_id = request_id
+        import logging
+        import time
+        started = time.perf_counter()
+        with bind_context(trace_id=trace_id, request_id=request_id):
+            try:
+                principal = authenticator.authenticate(request.headers.get("authorization"))
+                client_host = request.client.host if request.client else None
+                if authenticator.enabled and principal is not None:
+                    identity = f"key:{principal.key_id}"
+                else:
+                    identity = client_identity(client_host)
 
-        allowed, remaining, reset_seconds = rate_limiter.check(identity)
-        if not allowed:
-            return JSONResponse(
-                status_code=429,
-                content={"detail": "API rate limit exceeded. Retry after the current window."},
-                headers={
-                    "Retry-After": str(max(1, reset_seconds)),
-                    "X-RateLimit-Limit": str(rate_limiter.limit),
-                    "X-RateLimit-Remaining": "0",
-                },
-            )
+                allowed, remaining, reset_seconds = rate_limiter.check(identity)
+                if not allowed:
+                    response = JSONResponse(
+                        status_code=429,
+                        content={"detail": "API rate limit exceeded. Retry after the current window."},
+                        headers={"Retry-After": str(max(1, reset_seconds)),
+                                 "X-RateLimit-Limit": str(rate_limiter.limit),
+                                 "X-RateLimit-Remaining": "0"},
+                    )
+                elif authenticator.enabled and request.url.path != "/health" and principal is None:
+                    response = JSONResponse(
+                        status_code=401,
+                        content={"detail": "A valid bearer API key is required."},
+                        headers={"WWW-Authenticate": "Bearer"},
+                    )
+                elif (
+                    authenticator.enabled
+                    and request.url.path != "/health"
+                    and _role_level(principal.role) < (1 if request.method in {"GET", "HEAD", "OPTIONS"} else 2)
+                ):
+                    response = JSONResponse(
+                        status_code=403,
+                        content={"detail": "The API key role is not permitted to perform this operation."},
+                    )
+                else:
+                    response = await call_next(request)
 
-        if authenticator.enabled and request.url.path != "/health":
-            if principal is None:
-                return JSONResponse(
-                    status_code=401,
-                    content={"detail": "A valid bearer API key is required."},
-                    headers={"WWW-Authenticate": "Bearer"},
+                route = request.scope.get("route")
+                route_name = getattr(route, "path", request.url.path)
+                response.headers["X-RateLimit-Limit"] = str(rate_limiter.limit)
+                response.headers["X-RateLimit-Remaining"] = str(remaining)
+                response.headers["X-RateLimit-Reset-Seconds"] = str(reset_seconds)
+                response.headers["X-Request-ID"] = request_id
+                response.headers["traceparent"] = f"00-{trace_id}-{uuid.uuid4().hex[:16]}-01"
+                METRICS.increment("aura_http_requests", method=request.method, route=route_name, status=str(response.status_code))
+                METRICS.observe("aura_http_request_duration_ms", (time.perf_counter() - started) * 1000, method=request.method, route=route_name)
+                logging.getLogger("aura.api").info(
+                    "HTTP request completed",
+                    extra={"event": "http.request", "method": request.method,
+                           "route": route_name, "status_code": response.status_code},
                 )
-            required_level = 1 if request.method in {"GET", "HEAD", "OPTIONS"} else 2
-            if _role_level(principal.role) < required_level:
-                return JSONResponse(
-                    status_code=403,
-                    content={"detail": "The API key role is not permitted to perform this operation."},
+                return response
+            except Exception as exc:
+                METRICS.increment("aura_http_requests", method=request.method, route=request.url.path, status="500")
+                logging.getLogger("aura.api").exception(
+                    "HTTP request failed",
+                    extra={"event": "http.error", "method": request.method,
+                           "route": request.url.path, "error_type": type(exc).__name__},
                 )
+                raise
 
-        response = await call_next(request)
-        response.headers["X-RateLimit-Limit"] = str(rate_limiter.limit)
-        response.headers["X-RateLimit-Remaining"] = str(remaining)
-        response.headers["X-RateLimit-Reset-Seconds"] = str(reset_seconds)
-        return response
+    @app.get("/metrics", include_in_schema=False, tags=["system"])
+    def metrics() -> PlainTextResponse:
+        """Prometheus-compatible process metrics; protect exposure at the API gateway."""
+        return PlainTextResponse(METRICS.render(), media_type="text/plain; version=0.0.4; charset=utf-8")
 
     @app.get("/health", tags=["system"])
     def health() -> dict[str, str]:
@@ -304,6 +340,33 @@ def create_app(
         if db.get_research_job(job_id) is None:
             raise HTTPException(status_code=404, detail="Research job not found.")
         return db.list_research_job_attempts(job_id)
+
+    @app.get("/research/jobs/{job_id}/diagnostics", tags=["execution"])
+    def get_research_job_diagnostics(job_id: str) -> dict:
+        """Assemble durable worker-attempt and task-checkpoint failure context."""
+        job = db.get_research_job(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Research job not found.")
+        run = db.get_research_run(job.run_id)
+        task_diagnostics = []
+        if run is not None:
+            for task_id in run.tasks:
+                task = db.get_research_task(task_id)
+                checkpoint = db.get_task_checkpoint(job.run_id, task_id)
+                task_diagnostics.append({
+                    "task_id": task_id,
+                    "status": task.status if task is not None else "missing",
+                    "checkpoint_status": checkpoint.status if checkpoint is not None else None,
+                    "checkpoint_error": checkpoint.error if checkpoint is not None else None,
+                })
+        return {
+            "job_id": job_id,
+            "run_id": job.run_id,
+            "status": job.status.value,
+            "error": job.error,
+            "attempts": [attempt.model_dump(mode="json") for attempt in db.list_research_job_attempts(job_id)],
+            "tasks": task_diagnostics,
+        }
 
     @app.post("/research/jobs/{job_id}/cancel", response_model=ResearchJob, tags=["execution"])
     def cancel_research_job(job_id: str) -> ResearchJob:
