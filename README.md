@@ -126,3 +126,32 @@ Configure `AURA_API_KEYS` as a JSON array of objects with a unique `id`, a rando
 The `reader` role can use safe HTTP methods (GET, HEAD, OPTIONS); `operator` and `admin` can also use mutating methods. `GET /health` remains public. Invalid or missing credentials receive HTTP 401, insufficient roles receive HTTP 403, and rate-limit exhaustion receives HTTP 429 with a `Retry-After` header.
 
 `AURA_API_RATE_LIMIT` sets the request limit per identity (default 120) and `AURA_API_RATE_WINDOW_SECONDS` sets the fixed-window duration (default 60 seconds). Authenticated requests are limited per API key id; unauthenticated traffic is limited by the direct client IP. Forwarded IP headers are deliberately not trusted. The limiter is in-memory and local to each API process, so multi-process or multi-instance deployments should enforce a shared limit at a trusted API gateway or edge proxy as well. Authentication keys must be rotated by updating deployment configuration and restarting the API.
+
+
+### System observability
+
+AURA emits structured JSON logs to standard output. Set `AURA_LOG_LEVEL` to
+`DEBUG`, `INFO`, `WARNING`, or `ERROR` (default: `INFO`). Log records
+include available request, trace, run, job, task, and worker correlation IDs.
+Prompts, tool payloads, authorization headers, and configured API keys are not
+intentionally logged; common bearer tokens, key assignments, and MongoDB
+credentials are redacted by the formatter.
+
+The API accepts a W3C `traceparent` header and an optional `X-Request-ID`.
+It returns the propagated trace context and request ID in response headers.
+Worker jobs receive a new trace ID, which is carried into task, tool, and LLM
+spans. These spans and IDs provide in-process correlation; this implementation
+does not export to an external OpenTelemetry collector.
+
+Prometheus-compatible process metrics are available at `GET /metrics`.
+Metrics include API request counts and durations, task/tool/LLM outcomes,
+worker job outcomes, and span durations. Counters and histogram buckets are
+process-local; they reset on restart and are not aggregated across replicas.
+Protect the endpoint with the same API authentication policy or a trusted
+gateway before exposing it outside a private network.
+
+For a durable background job, `GET /research/jobs/{job_id}/diagnostics`
+combines its current status, persisted worker attempts, and task checkpoint
+errors. Attempt diagnostics include the error type and trace ID when a worker
+caught an exception. The existing `/attempts` endpoint remains available for
+the raw attempt history.
