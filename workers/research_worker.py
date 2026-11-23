@@ -14,6 +14,7 @@ from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt, ResearchJobAttemptStatus
 from storage.models.research import ResearchRunStatus
 from tools.registry import ToolRegistry, build_default_tool_registry
+from observability import METRICS, bind_context, configure_logging, current_context, span
 
 
 class ResearchWorker:
@@ -41,11 +42,23 @@ class ResearchWorker:
         if not lease_token:
             return self.database.get_research_job(job.job_id)
 
+        with bind_context(job_id=job.job_id, run_id=job.run_id, worker_id=self.worker_id):
+            with span("worker.process_job", component="worker"):
+                return self._process_claimed_job(job, lease_token)
+
+    def _process_claimed_job(self, job: ResearchJob, lease_token: str) -> ResearchJob:
         attempt = self._begin_attempt(job)
         outcome: ResearchJobStatus | None = None
+        failure_type: str | None = None
         try:
             outcome = self._execute(job, lease_token)
         except Exception as exc:
+            import logging
+            failure_type = type(exc).__name__
+            logging.getLogger("aura.worker").exception(
+                "Research job attempt failed",
+                extra={"event": "worker.job_failed", "error_type": failure_type},
+            )
             outcome = self._finish_failed(job, lease_token, str(exc))
         finally:
             if outcome is None:
@@ -61,10 +74,18 @@ class ResearchWorker:
                 attempt_status = ResearchJobAttemptStatus.FAILED
                 latest = self.database.get_research_job(job.job_id)
                 attempt_error = latest.error if latest is not None else None
-            attempt.finish(attempt_status, attempt_error)
+            attempt.finish(
+                attempt_status,
+                attempt_error,
+                error_type=failure_type,
+                trace_id=current_context().get("trace_id"),
+            )
             self.database.save_research_job_attempt(attempt)
+            METRICS.increment(
+                "aura_worker_jobs",
+                outcome=outcome.value if outcome is not None else "lease_lost",
+            )
         return self.database.get_research_job(job.job_id)
-
     def _begin_attempt(self, job: ResearchJob) -> ResearchJobAttempt:
         # A previous RUNNING record means its worker disappeared before it
         # could close the attempt; the new lease claim proves that attempt expired.
@@ -300,8 +321,12 @@ def main() -> None:
     from dotenv import load_dotenv
 
     load_dotenv()
+    configure_logging()
     worker = build_worker_from_environment()
-    print(f"AURA worker {worker.worker_id} started.")
+    import logging
+    logging.getLogger("aura.worker").info(
+        "AURA worker started", extra={"event": "worker.started", "component": "worker"}
+    )
     worker.run_forever()
 
 
