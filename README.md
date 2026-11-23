@@ -207,10 +207,17 @@ Local MongoDB is disabled by default and only starts when the `local-mongo` Comp
 mongodb://aura_app:YOUR_URL_SAFE_APP_PASSWORD@mongodb:27017/aura?authSource=aura
 ```
 
-Then run:
+Start the local database first and wait until it reports healthy:
 
 ```powershell
-docker compose --env-file .env.local --profile local-mongo up --build -d
+docker compose --env-file .env.local --profile local-mongo up -d mongodb
+docker compose --env-file .env.local --profile local-mongo ps
+```
+
+Then start the application services against it:
+
+```powershell
+docker compose --env-file .env.local --profile local-mongo up --build -d api worker
 ```
 
 The local database uses the named `aura-mongodb-data` volume and can consume disk as research data accumulates. Use it only when needed. Return to the managed database by starting the default stack with the regular `.env` file. Do not run `docker compose down -v` unless you intentionally want to permanently delete the local MongoDB volume and all data in it.
