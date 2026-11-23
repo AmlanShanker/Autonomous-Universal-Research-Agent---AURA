@@ -20,6 +20,7 @@ from agents.task_executor import TaskExecutor
 from storage.database.base import Database
 from storage.database.memory import InMemoryDatabase
 from storage.database.mongo import MongoDatabase
+from config.database import database_uri_from_environment
 from storage.models.experiment import ExperimentResult
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
@@ -58,7 +59,7 @@ class ResearchRunCreated(BaseModel):
 def _default_database() -> Database:
     backend = os.getenv("AURA_DATABASE_BACKEND", "memory").strip().lower()
     if backend == "mongodb":
-        uri = os.getenv("MONGO_URL") or os.getenv("MONGODB_URI")
+        uri = database_uri_from_environment()
         database_name = os.getenv("MONGODB_DATABASE", "aura")
         if not uri:
             raise RuntimeError(
