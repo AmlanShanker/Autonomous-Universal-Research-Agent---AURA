@@ -29,6 +29,7 @@ from tools.builder import (
 )
 from tools.registry import ToolRegistry
 from tools.execution_sandbox import ToolExecutionSandbox
+from observability import METRICS, bind_context, span
 
 
 class TaskExecutor:
@@ -341,6 +342,21 @@ class TaskExecutor:
         )
 
     def execute_task(
+        self,
+        task: ResearchTask,
+    ) -> bool:
+        """Execute a task with correlated tracing and bounded outcome metrics."""
+        with bind_context(run_id=self.run_id, task_id=task.task_id):
+            try:
+                with span("task.execute", component="task_executor", operation="execute_task"):
+                    result = self._execute_task(task)
+            except Exception:
+                METRICS.increment("aura_tasks", outcome="failed")
+                raise
+            METRICS.increment("aura_tasks", outcome="completed" if result else "blocked")
+            return result
+
+    def _execute_task(
         self,
         task: ResearchTask,
     ) -> bool:
