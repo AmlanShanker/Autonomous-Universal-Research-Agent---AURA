@@ -58,6 +58,7 @@ def test_retrieval_benchmark_measures_real_retriever_and_returns_metrics():
         "precision_at_k": 0.5,
         "recall_at_k": 1.0,
         "mean_reciprocal_rank": 1.0,
+        "ndcg_at_k": 1.0,
     }
     assert result["outputs"]["query_count"] == 2
     assert result["outputs"]["queries"][0]["retrieved_memory_ids"][0] == "memory_rag"
