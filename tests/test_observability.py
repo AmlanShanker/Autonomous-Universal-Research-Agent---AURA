@@ -11,6 +11,8 @@ from observability import (
 )
 from api.app import create_app
 from storage.database.memory import InMemoryDatabase
+from storage.models.job import ResearchJob
+from storage.models.job_attempt import ResearchJobAttempt, ResearchJobAttemptStatus
 
 
 def _record(message: str) -> logging.LogRecord:
@@ -84,3 +86,31 @@ def test_job_diagnostics_returns_404_for_unknown_job(monkeypatch):
     response = client.get("/research/jobs/missing/diagnostics")
 
     assert response.status_code == 404
+
+ 
+def test_job_diagnostics_includes_durable_attempt_failure_context(monkeypatch):
+    monkeypatch.setenv("AURA_API_AUTH_ENABLED", "false")
+    database = InMemoryDatabase()
+    database.save_research_job(ResearchJob(job_id="job-1", run_id="run-1"))
+    attempt = ResearchJobAttempt(
+        attempt_id="job-1:1",
+        job_id="job-1",
+        attempt_number=1,
+        worker_id="worker-1",
+    )
+    attempt.finish(
+        ResearchJobAttemptStatus.FAILED,
+        "adapter failed",
+        error_type="RuntimeError",
+        trace_id="a" * 32,
+    )
+    database.save_research_job_attempt(attempt)
+    client = TestClient(create_app(database=database, experiment_adapters={}))
+
+    response = client.get("/research/jobs/job-1/diagnostics")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["job_id"] == "job-1"
+    assert payload["attempts"][0]["error_type"] == "RuntimeError"
+    assert payload["attempts"][0]["trace_id"] == "a" * 32
