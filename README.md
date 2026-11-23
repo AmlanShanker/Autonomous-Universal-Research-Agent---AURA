@@ -130,7 +130,7 @@ The `reader` role can use safe HTTP methods (GET, HEAD, OPTIONS); `operator` and
 
 ### System observability
 
-AURA emits structured JSON logs to standard output. Set `AURA_LOG_LEVEL` to
+The API, worker, and instrumented agent components emit structured JSON logs to standard output. Set `AURA_LOG_LEVEL` to
 `DEBUG`, `INFO`, `WARNING`, or `ERROR` (default: `INFO`). Log records
 include available request, trace, run, job, task, and worker correlation IDs.
 Prompts, tool payloads, authorization headers, and configured API keys are not
