@@ -1,4 +1,5 @@
 from collections.abc import Mapping
+import math
 from typing import Any
 
 from memory.research_memory import ResearchMemoryItem
@@ -108,7 +109,7 @@ def retrieval_benchmark_adapter(
             1.0 / (ranked_ids.index(hits[0]) + 1) if hits else 0.0
         )
         dcg = sum(
-            1.0 / __import__("math").log2(rank + 2)
+            1.0 / math.log2(rank + 2)
             for rank, memory_id in enumerate(ranked_ids)
             if memory_id in relevant_set
         )
