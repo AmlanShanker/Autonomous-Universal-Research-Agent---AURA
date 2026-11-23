@@ -1,5 +1,8 @@
 services:
+  # Optional local database for offline development and isolated testing.
+  # The default deployment uses the managed/online MongoDB URI from .env.
   mongodb:
+    profiles: ["local-mongo"]
     image: mongo:8.0
     restart: unless-stopped
     environment:
@@ -30,15 +33,12 @@ services:
       - .env
     environment:
       AURA_DATABASE_BACKEND: mongodb
-      MONGODB_URI: mongodb://${MONGO_APP_USERNAME:-aura_app}:${MONGO_APP_PASSWORD}@mongodb:27017/${MONGODB_DATABASE:-aura}?authSource=${MONGODB_DATABASE:-aura}
+      AURA_DATABASE_URI: ${AURA_DATABASE_URI:-${MONGO_URL:?Set AURA_DATABASE_URI or MONGO_URL in .env}}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-aura}
       AURA_API_AUTH_ENABLED: "true"
       AURA_API_KEYS: ${AURA_API_KEYS:?Set AURA_API_KEYS in .env}
     ports:
       - "${AURA_BIND_ADDRESS:-127.0.0.1}:${AURA_API_PORT:-8000}:8000"
-    depends_on:
-      mongodb:
-        condition: service_healthy
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 30s
@@ -59,11 +59,8 @@ services:
       - .env
     environment:
       AURA_DATABASE_BACKEND: mongodb
-      MONGODB_URI: mongodb://${MONGO_APP_USERNAME:-aura_app}:${MONGO_APP_PASSWORD}@mongodb:27017/${MONGODB_DATABASE:-aura}?authSource=${MONGODB_DATABASE:-aura}
+      AURA_DATABASE_URI: ${AURA_DATABASE_URI:-${MONGO_URL:?Set AURA_DATABASE_URI or MONGO_URL in .env}}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-aura}
-    depends_on:
-      mongodb:
-        condition: service_healthy
     networks:
       - aura-internal
 
