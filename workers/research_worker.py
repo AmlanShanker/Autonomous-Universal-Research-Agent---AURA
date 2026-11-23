@@ -1,7 +1,9 @@
+import logging
 import os
 import socket
 import uuid
 from datetime import datetime, timezone
+from contextvars import copy_context
 from threading import Event, Thread
 from collections.abc import Callable
 
@@ -199,14 +201,30 @@ class ResearchWorker:
                     renewed = self.database.renew_research_job_lease(
                         job.job_id, self.worker_id, lease_token, self.lease_seconds
                     )
-                except Exception:
+                except Exception as exc:
+                    METRICS.increment("aura_worker_lease_renewals", outcome="error")
+                    logging.getLogger("aura.worker").exception(
+                        "Worker lease renewal failed",
+                        extra={"event": "worker.lease_renewal_failed", "error_type": type(exc).__name__},
+                    )
                     lease_lost.set()
                     return
                 if not renewed:
+                    METRICS.increment("aura_worker_lease_renewals", outcome="rejected")
+                    logging.getLogger("aura.worker").warning(
+                        "Worker lease ownership was lost",
+                        extra={"event": "worker.lease_lost"},
+                    )
                     lease_lost.set()
                     return
+                METRICS.increment("aura_worker_lease_renewals", outcome="success")
 
-        heartbeat_thread = Thread(target=heartbeat, daemon=True)
+        heartbeat_context = copy_context()
+        heartbeat_thread = Thread(
+            target=heartbeat_context.run,
+            args=(heartbeat,),
+            daemon=True,
+        )
         heartbeat_thread.start()
 
         try:
