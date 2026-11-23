@@ -65,7 +65,7 @@ class JSONFormatter(logging.Formatter):
         span_id = _span_id.get()
         if span_id:
             payload["span_id"] = span_id
-        for name in ("event", "duration_ms", "status_code", "method", "route", "component", "error_type"):
+        for name in ("event", "duration_ms", "status_code", "method", "route", "component", "error_type", "provider", "operation"):
             value = getattr(record, name, None)
             if value is not None:
                 payload[name] = value
@@ -161,7 +161,12 @@ class MetricsRegistry:
             gauges = list(self._gauges.items())
         for (name, labels), value in sorted(counters):
             lines.append(f"{name}_total{self._labels(labels)} {value:g}")
+        buckets = (5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
         for (name, labels), values in sorted(observations):
+            for bound in buckets:
+                count = sum(1 for value in values if value <= bound)
+                lines.append(f'{name}_bucket{self._labels(labels + (("le", str(bound)),))} {count}')
+            lines.append(f'{name}_bucket{self._labels(labels + (("le", "+Inf"),))} {len(values)}')
             lines.append(f"{name}_count{self._labels(labels)} {len(values)}")
             lines.append(f"{name}_sum{self._labels(labels)} {sum(values):g}")
         for (name, labels), value in sorted(gauges):
