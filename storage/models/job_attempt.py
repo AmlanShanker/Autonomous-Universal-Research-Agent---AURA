@@ -23,6 +23,8 @@ class ResearchJobAttempt(BaseModel):
     started_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     finished_at: datetime | None = None
     error: str | None = Field(default=None, max_length=2000)
+    error_type: str | None = Field(default=None, max_length=128)
+    trace_id: str | None = Field(default=None, max_length=32)
 
     @field_validator("attempt_id", "job_id", "worker_id")
     @classmethod
@@ -35,6 +37,8 @@ class ResearchJobAttempt(BaseModel):
         self,
         status: ResearchJobAttemptStatus,
         error: str | None = None,
+        error_type: str | None = None,
+        trace_id: str | None = None,
     ) -> None:
         if self.status != ResearchJobAttemptStatus.RUNNING:
             raise ValueError("Only running attempts can be finished.")
@@ -44,4 +48,6 @@ class ResearchJobAttempt(BaseModel):
         self.error = (error or None)
         if self.error is not None:
             self.error = self.error[:2000]
+        self.error_type = (error_type or None)
+        self.trace_id = (trace_id or None)
         self.finished_at = datetime.now(timezone.utc)
