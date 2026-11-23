@@ -29,7 +29,7 @@ from storage.models.execution import ExecutionResult
 from storage.models.research import ResearchPlan, ResearchRun, ResearchTask
 from api.security import APIKeyAuthenticator, InMemoryRateLimiter, client_identity
 from observability import (
-    METRICS, bind_context, configure_logging, trace_id_from_header,
+    METRICS, bind_context, configure_logging, current_span_id, trace_id_from_header,
 )
 from tools.registry import (
     ToolRegistry,
@@ -165,7 +165,7 @@ def create_app(
                 response.headers["X-RateLimit-Remaining"] = str(remaining)
                 response.headers["X-RateLimit-Reset-Seconds"] = str(reset_seconds)
                 response.headers["X-Request-ID"] = request_id
-                response.headers["traceparent"] = f"00-{trace_id}-{uuid.uuid4().hex[:16]}-01"
+                response.headers["traceparent"] = f"00-{trace_id}-{current_span_id() or uuid.uuid4().hex[:16]}-01"
                 METRICS.increment("aura_http_requests", method=request.method, route=route_name, status=str(response.status_code))
                 METRICS.observe("aura_http_request_duration_ms", (time.perf_counter() - started) * 1000, method=request.method, route=route_name)
                 logging.getLogger("aura.api").info(
