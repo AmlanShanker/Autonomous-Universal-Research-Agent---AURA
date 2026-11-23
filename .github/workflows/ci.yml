@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests-and-container:
+    runs-on: ubuntu-latest
+    env:
+      # Legacy test modules import this setting during collection; no database
+      # connection is made by the unit suite.
+      MONGO_URL: mongodb://127.0.0.1:27017/aura_ci
+      MONGO_ROOT_USERNAME: aura_ci
+      MONGO_ROOT_PASSWORD: CI_ONLY_PASSWORD_12345678901234567890
+      MONGODB_DATABASE: aura_ci
+      AURA_API_KEYS: '[{"id":"ci","key":"CI_ONLY_API_KEY_123456789012345678901234567890","role":"admin"}]'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --all-groups
+
+      - name: Run complete test suite
+        run: uv run pytest -q
+
+      - name: Prepare Compose interpolation environment
+        run: cp .env.example .env
+
+      - name: Validate Compose configuration
+        run: docker compose config --quiet
+
+      - name: Build production image
+        run: docker build --tag aura:ci .
