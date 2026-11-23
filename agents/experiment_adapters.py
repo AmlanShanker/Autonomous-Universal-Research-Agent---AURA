@@ -115,7 +115,7 @@ def retrieval_benchmark_adapter(
         )
         ideal_hits = min(limit, len(relevant_set))
         ideal_dcg = sum(
-            1.0 / __import__("math").log2(rank + 2)
+            1.0 / math.log2(rank + 2)
             for rank in range(ideal_hits)
         )
         ndcg = dcg / ideal_dcg if ideal_dcg else 0.0
