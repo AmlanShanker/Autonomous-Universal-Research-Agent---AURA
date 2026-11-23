@@ -2,6 +2,7 @@ import os
 import time
 
 from dotenv import load_dotenv
+from observability import METRICS, span
 from openai import (
     APIConnectionError,
     APITimeoutError,
@@ -175,6 +176,18 @@ class LLMClient:
                     time.sleep(delay)
 
     def generate(self, prompt: str) -> str:
+        """Generate with bounded retries while recording provider-level telemetry."""
+        METRICS.increment("aura_llm_requests", provider=self.provider, outcome="started")
+        try:
+            with span("llm.generate", component="llm", provider=self.provider):
+                result = self._generate(prompt)
+        except Exception:
+            METRICS.increment("aura_llm_requests", provider=self.provider, outcome="error")
+            raise
+        METRICS.increment("aura_llm_requests", provider=self.provider, outcome="success")
+        return result
+
+    def _generate(self, prompt: str) -> str:
         """Generate with bounded retries and at most one fallback provider attempt."""
         try:
             response = self._request_with_retries(self.client, self.model, prompt)
