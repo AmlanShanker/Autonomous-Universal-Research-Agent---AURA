@@ -157,6 +157,26 @@ caught an exception. The existing `/attempts` endpoint remains available for
 the raw attempt history.
 
 
+## Research evaluation benchmarks
+
+Phase 21 adds versioned, labeled offline benchmark datasets for AURA's production research-memory retriever. The suite currently includes core platform queries and edge cases with overlapping topics and multiple relevant memories.
+
+Run the complete benchmark suite without LLM or external API calls:
+
+```powershell
+uv run python -m evaluation.run_benchmarks
+```
+
+The runner prints machine-readable JSON containing the benchmark version, SHA-256 digest of each dataset, Python runtime, per-query rankings, aggregate metrics, and threshold results. To save the full result:
+
+```powershell
+uv run python -m evaluation.run_benchmarks --output artifacts/research-evaluation.json
+```
+
+The benchmark reports macro-averaged **Precision@k**, **Recall@k**, **Mean Reciprocal Rank (MRR)**, and **Normalized Discounted Cumulative Gain (nDCG@k)**. Each dataset declares minimum acceptance thresholds; the command exits non-zero when a threshold is missed. CI runs this suite on every pull request.
+
+Benchmark labels are explicit relevance judgments for this fixed corpus, not proof that retrieved content is factually correct or that citations support a claim. The suite measures retrieval behavior only; broader research-quality dimensions remain available in each run's deterministic quality assessment. Add new versioned datasets rather than silently changing labels in an existing version, and review relevance judgments when benchmark versions change.
+
 ## Production deployment (Docker Compose)
 
 Phase 20 provides a production-oriented container image and a lightweight Compose deployment:
