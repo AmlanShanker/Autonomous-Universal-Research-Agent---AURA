@@ -20,7 +20,6 @@ from datetime import datetime, timezone
 from logging import LogRecord
 from threading import Lock
 from typing import Iterator
-from urllib.parse import urlsplit, urlunsplit
 
 
 _CONTEXT_FIELDS = ("trace_id", "request_id", "run_id", "job_id", "task_id", "worker_id")
