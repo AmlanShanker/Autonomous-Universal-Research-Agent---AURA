@@ -1,0 +1,82 @@
+services:
+  mongodb:
+    image: mongo:8.0
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USERNAME:?Set MONGO_ROOT_USERNAME in .env}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?Set MONGO_ROOT_PASSWORD in .env}
+    volumes:
+      - aura-mongodb-data:/data/db
+    healthcheck:
+      test:
+        - CMD
+        - mongosh
+        - --quiet
+        - --eval
+        - db.adminCommand('ping').ok
+        - --username
+        - $$MONGO_INITDB_ROOT_USERNAME
+        - --password
+        - $$MONGO_INITDB_ROOT_PASSWORD
+        - --authenticationDatabase
+        - admin
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+    networks:
+      - aura-internal
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ${AURA_IMAGE:-aura:local}
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AURA_DATABASE_BACKEND: mongodb
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-aura}
+      AURA_API_AUTH_ENABLED: "true"
+      AURA_API_KEYS: ${AURA_API_KEYS:?Set AURA_API_KEYS in .env}
+    ports:
+      - "${AURA_BIND_ADDRESS:-127.0.0.1}:${AURA_API_PORT:-8000}:8000"
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    networks:
+      - aura-internal
+
+  worker:
+    image: ${AURA_IMAGE:-aura:local}
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["python", "-m", "workers.research_worker"]
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      AURA_DATABASE_BACKEND: mongodb
+      MONGODB_URI: mongodb://${MONGO_ROOT_USERNAME}:${MONGO_ROOT_PASSWORD}@mongodb:27017/?authSource=admin
+      MONGODB_DATABASE: ${MONGODB_DATABASE:-aura}
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    networks:
+      - aura-internal
+
+volumes:
+  aura-mongodb-data:
+
+networks:
+  aura-internal:
+    driver: bridge
