@@ -30,9 +30,9 @@ _context = {
 }
 _span_id = contextvars.ContextVar("aura_span_id", default=None)
 _SECRET_PATTERNS = (
-    (re.compile(r"(?i)(bearer\\s+)[A-Za-z0-9._~+/=-]+"), r"\\1[REDACTED]"),
-    (re.compile(r"(?i)((?:api[_-]?key|token|password|secret)\\s*[=:]\\s*)[^\\s,;]+"), r"\\1[REDACTED]"),
-    (re.compile(r"(?i)(mongodb(?:\\+srv)?://)[^\\s/@]+@"), r"\\1[REDACTED]@"),
+    (re.compile(r"(?i)(bearer\s+)[A-Za-z0-9._~+/=-]+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)((?:api[_-]?key|token|password|secret)\s*[=:]\s*)[^\s,;]+"), r"\1[REDACTED]"),
+    (re.compile(r"(?i)(mongodb(?:\+srv)?://)[^\s/@]+@"), r"\1[REDACTED]@"),
 )
 
 
@@ -111,7 +111,7 @@ def new_trace_id() -> str:
 def trace_id_from_header(value: str | None) -> str:
     """Accept a valid W3C traceparent trace-id; otherwise create a fresh ID."""
     if value:
-        match = re.fullmatch(r"\\s*\\d{2}-([0-9a-fA-F]{32})-[0-9a-fA-F]{16}-[0-9a-fA-F]{2}\\s*", value)
+        match = re.fullmatch(r"\s*\d{2}-([0-9a-fA-F]{32})-[0-9a-fA-F]{16}-[0-9a-fA-F]{2}\s*", value)
         if match and match.group(1) != "0" * 32:
             return match.group(1).lower()
     return new_trace_id()
@@ -123,7 +123,7 @@ class MetricsRegistry:
     def __init__(self):
         self._lock = Lock()
         self._counters = defaultdict(float)
-        self._observations = defaultdict(list)
+        self._observations = defaultdict(lambda: {"count": 0, "sum": 0.0, "buckets": [0] * 10})
         self._gauges = {}
 
     @staticmethod
@@ -136,8 +136,15 @@ class MetricsRegistry:
             self._counters[self._key(name, labels)] += amount
 
     def observe(self, name: str, value: float, **labels) -> None:
+        bounds = (5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
         with self._lock:
-            self._observations[self._key(name, labels)].append(float(value))
+            observation = self._observations[self._key(name, labels)]
+            observation["count"] += 1
+            observation["sum"] += float(value)
+            for index, bound in enumerate(bounds):
+                if value <= bound:
+                    observation["buckets"][index] += 1
+                    break
 
     def gauge(self, name: str, value: float, **labels) -> None:
         with self._lock:
@@ -157,21 +164,22 @@ class MetricsRegistry:
         lines = []
         with self._lock:
             counters = list(self._counters.items())
-            observations = [(key, list(values)) for key, values in self._observations.items()]
+            observations = [(key, dict(value, buckets=list(value["buckets"]))) for key, value in self._observations.items()]
             gauges = list(self._gauges.items())
         for (name, labels), value in sorted(counters):
             lines.append(f"{name}_total{self._labels(labels)} {value:g}")
-        buckets = (5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
-        for (name, labels), values in sorted(observations):
-            for bound in buckets:
-                count = sum(1 for value in values if value <= bound)
-                lines.append(f'{name}_bucket{self._labels(labels + (("le", str(bound)),))} {count}')
-            lines.append(f'{name}_bucket{self._labels(labels + (("le", "+Inf"),))} {len(values)}')
-            lines.append(f"{name}_count{self._labels(labels)} {len(values)}")
-            lines.append(f"{name}_sum{self._labels(labels)} {sum(values):g}")
+        bounds = (5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000)
+        for (name, labels), observation in sorted(observations):
+            cumulative = 0
+            for index, bound in enumerate(bounds):
+                cumulative += observation["buckets"][index]
+                lines.append(f'{name}_bucket{self._labels(labels + (("le", str(bound)),))} {cumulative}')
+            lines.append(f'{name}_bucket{self._labels(labels + (("le", "+Inf"),))} {observation["count"]}')
+            lines.append(f"{name}_count{self._labels(labels)} {observation['count']}")
+            lines.append(f"{name}_sum{self._labels(labels)} {observation['sum']:g}")
         for (name, labels), value in sorted(gauges):
             lines.append(f"{name}{self._labels(labels)} {value:g}")
-        return "\\n".join(lines) + ("\\n" if lines else "")
+        return "\n".join(lines) + ("\n" if lines else "")
 
 
 METRICS = MetricsRegistry()
@@ -181,7 +189,6 @@ METRICS = MetricsRegistry()
 def span(name: str, **attributes) -> Iterator[None]:
     """Record a local correlated span and duration without exporting payload data."""
     logger = logging.getLogger("aura.trace")
-    previous_span = _span_id.get()
     current_span = uuid.uuid4().hex[:16]
     token = _span_id.set(current_span)
     started = time.perf_counter()
