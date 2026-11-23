@@ -163,7 +163,7 @@ Phase 20 provides a production-oriented container image and a Compose deployment
 
 - **API** — FastAPI/Uvicorn, one process per container, authenticated API access, and an HTTP health check.
 - **Worker** — separate durable-job worker using the same image and database configuration.
-- **MongoDB** — authenticated MongoDB 8 service with a persistent Docker volume; its port is not published to the host.
+- **MongoDB** — authenticated MongoDB 8 service with a persistent Docker volume and a least-privilege AURA application account; its port is not published to the host.
 
 ### Configure and start
 
@@ -173,7 +173,7 @@ Phase 20 provides a production-oriented container image and a Compose deployment
    Copy-Item .env.example .env
    ```
 
-2. Set `MONGO_ROOT_PASSWORD` to a fresh URL-safe secret, replace the example entry in `AURA_API_KEYS` with a generated API key (at least 32 characters), and configure the LLM provider key used by your research workloads. Generate secret material locally:
+2. Set `MONGO_ROOT_PASSWORD` to a fresh MongoDB bootstrap secret and `MONGO_APP_PASSWORD` to a separate URL-safe secret (the latter is embedded in the internal MongoDB URI). Replace the example entry in `AURA_API_KEYS` with a generated API key (at least 32 characters), and configure the LLM provider key used by your research workloads. Generate secret material locally:
 
    ```powershell
    python -c "import secrets; print(secrets.token_urlsafe(32))"
