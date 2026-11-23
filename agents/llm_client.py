@@ -2,7 +2,7 @@ import os
 import time
 
 from dotenv import load_dotenv
-from observability import METRICS, span
+from observability import METRICS, configure_logging, span
 from openai import (
     APIConnectionError,
     APITimeoutError,
@@ -53,6 +53,7 @@ class LLMClient:
     )
 
     def __init__(self):
+        configure_logging()
         load_dotenv()
         self.provider = os.getenv("LLM_PROVIDER", "groq").strip().lower()
         primary_config = self._provider_config(self.provider, "LLM_PROVIDER")
