@@ -71,6 +71,7 @@ def retrieval_benchmark_adapter(
     precision_scores = []
     recall_scores = []
     reciprocal_ranks = []
+    ndcg_scores = []
 
     for index, case in enumerate(queries):
         if not isinstance(case, Mapping) or set(case) != {"query", "relevant_memory_ids"}:
@@ -106,10 +107,22 @@ def retrieval_benchmark_adapter(
         reciprocal_rank = (
             1.0 / (ranked_ids.index(hits[0]) + 1) if hits else 0.0
         )
+        dcg = sum(
+            1.0 / __import__("math").log2(rank + 2)
+            for rank, memory_id in enumerate(ranked_ids)
+            if memory_id in relevant_set
+        )
+        ideal_hits = min(limit, len(relevant_set))
+        ideal_dcg = sum(
+            1.0 / __import__("math").log2(rank + 2)
+            for rank in range(ideal_hits)
+        )
+        ndcg = dcg / ideal_dcg if ideal_dcg else 0.0
 
         precision_scores.append(precision)
         recall_scores.append(recall)
         reciprocal_ranks.append(reciprocal_rank)
+        ndcg_scores.append(ndcg)
         query_results.append({
             "query": query,
             "retrieved_memory_ids": ranked_ids,
@@ -117,6 +130,7 @@ def retrieval_benchmark_adapter(
             "precision_at_k": precision,
             "recall_at_k": recall,
             "reciprocal_rank": reciprocal_rank,
+            "ndcg_at_k": ndcg,
         })
 
     count = len(query_results)
@@ -125,6 +139,7 @@ def retrieval_benchmark_adapter(
             "precision_at_k": sum(precision_scores) / count,
             "recall_at_k": sum(recall_scores) / count,
             "mean_reciprocal_rank": sum(reciprocal_ranks) / count,
+            "ndcg_at_k": sum(ndcg_scores) / count,
         },
         "outputs": {
             "k": limit,
@@ -168,10 +183,11 @@ def describe_default_experiment_adapters() -> dict[str, dict[str, Any]]:
                 "precision_at_k",
                 "recall_at_k",
                 "mean_reciprocal_rank",
+                "ndcg_at_k",
             ],
             "output": (
                 "Per-query retrieved IDs and relevance labels, aggregate precision, "
-                "recall, and mean reciprocal rank."
+                "recall, mean reciprocal rank, and normalized discounted cumulative gain."
             ),
         }
     }
