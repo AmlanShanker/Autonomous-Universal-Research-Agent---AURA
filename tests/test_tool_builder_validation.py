@@ -105,3 +105,24 @@ def test_empty_request_reason_is_rejected_before_llm_call():
     with pytest.raises(ValueError, match="Reason cannot be empty"):
         builder.build(ToolBuildRequest("dataset_analysis", " "))
     assert llm.prompts == []
+
+
+def test_builder_defers_llm_client_creation_until_build(monkeypatch):
+    calls = []
+
+    class LazyFakeLLM:
+        def generate(self, prompt):
+            return json.dumps(valid_payload())
+
+    def make_llm_client():
+        calls.append(True)
+        return LazyFakeLLM()
+
+    monkeypatch.setattr("tools.builder.LLMClient", make_llm_client)
+    builder = ToolBuilder()
+
+    assert calls == []
+    tool = builder.build(ToolBuildRequest("dataset_analysis", "Need dataset metrics."))
+
+    assert tool.name == "dataset_analyzer"
+    assert calls == [True]
