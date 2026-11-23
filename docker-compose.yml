@@ -9,15 +9,15 @@ services:
       - aura-mongodb-data:/data/db
     healthcheck:
       test:
-        - CMD
+        - CMD-SHELL
         - mongosh
         - --quiet
         - --eval
         - db.adminCommand('ping').ok
         - --username
-        - $$MONGO_INITDB_ROOT_USERNAME
+        - $MONGO_INITDB_ROOT_USERNAME
         - --password
-        - $$MONGO_INITDB_ROOT_PASSWORD
+        - $MONGO_INITDB_ROOT_PASSWORD
         - --authenticationDatabase
         - admin
       interval: 10s
