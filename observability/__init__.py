@@ -76,7 +76,11 @@ class JSONFormatter(logging.Formatter):
 def configure_logging() -> None:
     """Configure a single JSON stream handler; safe to call repeatedly."""
     root = logging.getLogger()
-    root.setLevel(os.getenv("AURA_LOG_LEVEL", "INFO").upper())
+    level_name = os.getenv("AURA_LOG_LEVEL", "INFO").strip().upper()
+    level = getattr(logging, level_name, None)
+    if not isinstance(level, int):
+        raise ValueError("AURA_LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR, or CRITICAL.")
+    root.setLevel(level)
     if not any(getattr(handler, "_aura_json_handler", False) for handler in root.handlers):
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(JSONFormatter())
