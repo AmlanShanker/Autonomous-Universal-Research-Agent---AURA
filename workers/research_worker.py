@@ -28,6 +28,7 @@ class ResearchWorker:
         experiment_adapters: dict | None = None,
         lease_seconds: int = 3600,
     ):
+        configure_logging()
         self.database = database
         self.worker_id = worker_id or f"{socket.gethostname()}-{uuid.uuid4().hex[:8]}"
         self.tool_registry_factory = tool_registry_factory or build_default_tool_registry
