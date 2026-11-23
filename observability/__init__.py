@@ -187,14 +187,14 @@ def span(name: str, **attributes) -> Iterator[None]:
     try:
         yield
     except Exception as exc:
-        METRICS.increment("aura_spans", outcome="error", name=name)
+        METRICS.increment("aura_spans", outcome="error", span_name=name)
         logger.exception(
             "span failed",
             extra={"event": "span.failed", "component": name, "error_type": type(exc).__name__},
         )
         raise
     else:
-        METRICS.increment("aura_spans", outcome="success", name=name)
+        METRICS.increment("aura_spans", outcome="success", span_name=name)
     finally:
         duration = (time.perf_counter() - started) * 1000
         METRICS.observe("aura_span_duration_ms", duration, component=name)
