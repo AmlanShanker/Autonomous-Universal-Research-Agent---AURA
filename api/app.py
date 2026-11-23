@@ -63,7 +63,7 @@ def _default_database() -> Database:
         database_name = os.getenv("MONGODB_DATABASE", "aura")
         if not uri:
             raise RuntimeError(
-                "MONGO_URL or MONGODB_URI is required when AURA_DATABASE_BACKEND=mongodb."
+                "AURA_DATABASE_URI, MONGO_URL, or MONGODB_URI is required when AURA_DATABASE_BACKEND=mongodb."
             )
         return MongoDatabase(uri, database_name)
     if backend != "memory":
