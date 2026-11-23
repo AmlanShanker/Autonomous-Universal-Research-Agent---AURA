@@ -155,3 +155,72 @@ combines its current status, persisted worker attempts, and task checkpoint
 errors. Attempt diagnostics include the error type and trace ID when a worker
 caught an exception. The existing `/attempts` endpoint remains available for
 the raw attempt history.
+
+
+## Production deployment (Docker Compose)
+
+Phase 20 provides a production-oriented container image and a Compose deployment with three services:
+
+- **API** — FastAPI/Uvicorn, one process per container, authenticated API access, and an HTTP health check.
+- **Worker** — separate durable-job worker using the same image and database configuration.
+- **MongoDB** — authenticated MongoDB 8 service with a persistent Docker volume; its port is not published to the host.
+
+### Configure and start
+
+1. Copy the template and edit the local file:
+
+   ```powershell
+   Copy-Item .env.example .env
+   ```
+
+2. Set `MONGO_ROOT_PASSWORD` to a fresh URL-safe secret, replace the example entry in `AURA_API_KEYS` with a generated API key (at least 32 characters), and configure the LLM provider key used by your research workloads. Generate secret material locally:
+
+   ```powershell
+   python -c "import secrets; print(secrets.token_urlsafe(32))"
+   ```
+
+   Keep `.env` private. It is ignored by Git and must not be committed. The Compose deployment forces API authentication on, regardless of the local-development value in the template. The configured API key must have the appropriate role (`reader`, `operator`, or `admin`).
+
+3. Build and start the stack:
+
+   ```powershell
+   docker compose up --build -d
+   docker compose ps
+   Invoke-RestMethod http://127.0.0.1:8000/health
+   ```
+
+4. Follow service logs:
+
+   ```powershell
+   docker compose logs -f api worker
+   ```
+
+The API binds to `127.0.0.1:8000` by default. Put a TLS-terminating reverse proxy in front of it for remote access. Change `AURA_BIND_ADDRESS` only when the host firewall and network exposure are configured deliberately. The API does not trust forwarded client-IP headers by default. Do not publish the MongoDB port.
+
+### Container releases
+
+Pushing a version tag matching `v*` runs `.github/workflows/publish-container.yml` and publishes the image to GitHub Container Registry (GHCR), tagged with the version and (for non-prerelease tags) `latest`. For example:
+
+```powershell
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+To deploy a published version, set `AURA_IMAGE` in `.env` to the exact image tag, then run:
+
+```powershell
+docker compose pull
+docker compose up -d --no-build
+```
+
+### Operations, upgrades, and rollback
+
+- Check container readiness with `docker compose ps`; the API health check probes `/health`, and MongoDB readiness gates API/worker startup.
+- Inspect structured service logs with `docker compose logs -f api worker`. Prometheus-compatible process metrics are exposed at `/metrics`; protect this endpoint at the same authenticated API boundary or a trusted gateway.
+- MongoDB data lives in the named `aura-mongodb-data` volume. Back it up regularly using MongoDB's supported backup tooling and test restores before upgrading. A Docker volume is persistence, not a backup.
+- Before an upgrade, take a database backup and record the current image tag. Deploy the new immutable image tag, then verify API health and worker startup.
+- To roll back, set `AURA_IMAGE` to the previous known-good tag and run `docker compose pull` followed by `docker compose up -d --no-build`. Restore the database backup only if the newer application performed an incompatible data migration; the current application does not automatically roll back database contents.
+
+### Deployment boundaries
+
+The container runs as a non-root user and does not execute LLM-generated source code. The API and worker share MongoDB but run as separate services. Run one Uvicorn worker per API container: request-rate limiting and observability metrics are process-local, so multiple replicas do not share counters or rate-limit state. Use a shared gateway/limiter and an external metrics collector when scaling horizontally. Use a restricted host/container runtime, network egress controls, TLS, and managed secrets for deployments exposed to untrusted users. The Compose MongoDB root account is a bootstrap convenience; for a managed production database, provision a least-privilege application user and supply its URI through deployment secrets.
