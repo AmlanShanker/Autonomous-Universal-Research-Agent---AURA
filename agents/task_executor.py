@@ -111,7 +111,7 @@ class TaskExecutor:
             tool_registry=tool_registry
         )
 
-        self.tool_builder = ToolBuilder()
+        self.tool_builder = ToolBuilder(llm_client=llm_client)
         self.context_builder = TaskContextBuilder()
 
         self.completed_tasks: set[str] = {
