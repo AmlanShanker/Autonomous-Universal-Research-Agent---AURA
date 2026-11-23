@@ -332,7 +332,7 @@ def build_worker_from_environment() -> ResearchWorker:
         raise RuntimeError("The standalone worker requires AURA_DATABASE_BACKEND=mongodb.")
     uri = database_uri_from_environment()
     if not uri:
-        raise RuntimeError("MONGO_URL or MONGODB_URI is required by the standalone worker.")
+        raise RuntimeError("AURA_DATABASE_URI, MONGO_URL, or MONGODB_URI is required by the standalone worker.")
     database_name = os.getenv("MONGODB_DATABASE", "aura")
     return ResearchWorker(MongoDatabase(uri, database_name))
 
