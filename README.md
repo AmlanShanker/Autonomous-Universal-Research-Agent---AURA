@@ -159,13 +159,13 @@ the raw attempt history.
 
 ## Production deployment (Docker Compose)
 
-Phase 20 provides a production-oriented container image and a Compose deployment with three services:
+Phase 20 provides a production-oriented container image and a lightweight Compose deployment:
 
 - **API** — FastAPI/Uvicorn, one process per container, authenticated API access, and an HTTP health check.
-- **Worker** — separate durable-job worker using the same image and database configuration.
-- **MongoDB** — authenticated MongoDB 8 service with a persistent Docker volume and a least-privilege AURA application account; its port is not published to the host.
+- **Worker** — separate durable-job worker.
+- **Database** — the default deployment connects directly to your existing managed/online MongoDB cluster. MongoDB is not downloaded, run, or persisted on the laptop by default.
 
-### Configure and start
+### Configure and start (recommended: managed MongoDB)
 
 1. Copy the template and edit the local file:
 
@@ -173,15 +173,17 @@ Phase 20 provides a production-oriented container image and a Compose deployment
    Copy-Item .env.example .env
    ```
 
-2. Set `MONGO_ROOT_PASSWORD` to a fresh MongoDB bootstrap secret and `MONGO_APP_PASSWORD` to a separate URL-safe secret (the latter is embedded in the internal MongoDB URI). Replace the example entry in `AURA_API_KEYS` with a generated API key (at least 32 characters), and configure the LLM provider key used by your research workloads. Generate secret material locally:
+2. Set `AURA_DATABASE_URI` to your existing MongoDB connection URI. Keep the URI private and ensure its database user has only the permissions AURA needs. If `AURA_DATABASE_URI` is blank, the existing `MONGO_URL` setting is used for backward compatibility. Set `MONGODB_DATABASE` to the database name used by AURA. Also replace the example `AURA_API_KEYS` value with a generated key of at least 32 characters and configure your LLM provider key.
+
+   Generate API key material locally:
 
    ```powershell
    python -c "import secrets; print(secrets.token_urlsafe(32))"
    ```
 
-   Keep `.env` private. It is ignored by Git and must not be committed. The Compose deployment forces API authentication on, regardless of the local-development value in the template. The configured API key must have the appropriate role (`reader`, `operator`, or `admin`).
+   Keep `.env` private. It is ignored by Git and must not be committed. Compose forces API authentication on. The configured API key must have the appropriate role (`reader`, `operator`, or `admin`).
 
-3. Build and start the stack:
+3. Start only the API and worker:
 
    ```powershell
    docker compose up --build -d
@@ -195,7 +197,23 @@ Phase 20 provides a production-oriented container image and a Compose deployment
    docker compose logs -f api worker
    ```
 
-The API binds to `127.0.0.1:8000` by default. Put a TLS-terminating reverse proxy in front of it for remote access. Change `AURA_BIND_ADDRESS` only when the host firewall and network exposure are configured deliberately. The API does not trust forwarded client-IP headers by default. Do not publish the MongoDB port.
+The API and worker connect to the same online MongoDB cluster. The database itself stays in the managed service; only application containers, image layers, temporary files, and bounded operational logs occupy local disk. The API binds to `127.0.0.1:8000` by default. Put a TLS-terminating reverse proxy in front of it for remote access. Do not expose the database URI or publish a database port.
+
+### Optional local MongoDB (offline development / isolated testing)
+
+Local MongoDB is disabled by default and only starts when the `local-mongo` Compose profile is explicitly enabled. To keep the normal online URI untouched, create a separate environment file for local development (for example, copy `.env` to `.env.local`) and set `AURA_DATABASE_URI` there to:
+
+```text
+mongodb://aura_app:YOUR_URL_SAFE_APP_PASSWORD@mongodb:27017/aura?authSource=aura
+```
+
+Then run:
+
+```powershell
+docker compose --env-file .env.local --profile local-mongo up --build -d
+```
+
+The local database uses the named `aura-mongodb-data` volume and can consume disk as research data accumulates. Use it only when needed. Return to the managed database by starting the default stack with the regular `.env` file. Do not run `docker compose down -v` unless you intentionally want to permanently delete the local MongoDB volume and all data in it.
 
 ### Container releases
 
@@ -215,12 +233,12 @@ docker compose up -d --no-build
 
 ### Operations, upgrades, and rollback
 
-- Check container readiness with `docker compose ps`; the API health check probes `/health`, and MongoDB readiness gates API/worker startup.
+- Check container readiness with `docker compose ps`; the API health check probes `/health`.
 - Inspect structured service logs with `docker compose logs -f api worker`. Prometheus-compatible process metrics are exposed at `/metrics`; protect this endpoint at the same authenticated API boundary or a trusted gateway.
-- MongoDB data lives in the named `aura-mongodb-data` volume. Back it up regularly using MongoDB's supported backup tooling and test restores before upgrading. A Docker volume is persistence, not a backup.
+- Back up the managed MongoDB database using the provider's supported backup tooling and test restores. For local MongoDB, back up the named volume with MongoDB's supported tooling; a Docker volume is persistence, not a backup.
 - Before an upgrade, take a database backup and record the current image tag. Deploy the new immutable image tag, then verify API health and worker startup.
 - To roll back, set `AURA_IMAGE` to the previous known-good tag and run `docker compose pull` followed by `docker compose up -d --no-build`. Restore the database backup only if the newer application performed an incompatible data migration; the current application does not automatically roll back database contents.
 
 ### Deployment boundaries
 
-The container runs as a non-root user and does not execute LLM-generated source code. The API and worker share MongoDB but run as separate services. Run one Uvicorn worker per API container: request-rate limiting and observability metrics are process-local, so multiple replicas do not share counters or rate-limit state. Use a shared gateway/limiter and an external metrics collector when scaling horizontally. Use a restricted host/container runtime, network egress controls, TLS, and managed secrets for deployments exposed to untrusted users. The Compose MongoDB root account is a bootstrap convenience; for a managed production database, provision a least-privilege application user and supply its URI through deployment secrets.
+The container runs as a non-root user and does not execute LLM-generated source code. API and worker use the same configured MongoDB database. Request-rate limiting and observability metrics are process-local, so multiple replicas do not share counters or rate-limit state. Use a shared gateway/limiter and an external metrics collector when scaling horizontally. Use a restricted host/container runtime, network egress controls, TLS, and managed secrets for deployments exposed to untrusted users.
