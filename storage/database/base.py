@@ -8,6 +8,7 @@ from storage.models.context import ResearchContext
 from storage.models.execution import ExecutionResult
 from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
+from storage.models.improvement import ImprovementCycle, ImprovementProposal
 from storage.models.job import ResearchJob
 from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.job_stats import ResearchJobQueueStats
@@ -39,7 +40,6 @@ class Database(ABC):
     def list_research_sources(self) -> list[ResearchSource]:
         pass
 
-    @abstractmethod
     @abstractmethod
     def save_research_source(self, source: ResearchSource) -> None:
         pass
@@ -189,6 +189,30 @@ class Database(ABC):
 
     @abstractmethod
     def list_experiments_for_run(self, run_id: str) -> list[ExperimentDefinition]:
+        pass
+
+    @abstractmethod
+    def save_improvement_proposal(self, proposal: ImprovementProposal) -> None:
+        pass
+
+    @abstractmethod
+    def get_improvement_proposal(self, proposal_id: str) -> ImprovementProposal | None:
+        pass
+
+    @abstractmethod
+    def list_improvement_proposals_for_cycle(self, cycle_id: str) -> list[ImprovementProposal]:
+        pass
+
+    @abstractmethod
+    def save_improvement_cycle(self, cycle: ImprovementCycle) -> None:
+        pass
+
+    @abstractmethod
+    def get_improvement_cycle(self, cycle_id: str) -> ImprovementCycle | None:
+        pass
+
+    @abstractmethod
+    def list_improvement_cycles_for_run(self, run_id: str) -> list[ImprovementCycle]:
         pass
 
     @abstractmethod

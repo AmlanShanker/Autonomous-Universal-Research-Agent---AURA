@@ -177,6 +177,22 @@ The benchmark reports macro-averaged **Precision@k**, **Recall@k**, **Mean Recip
 
 Benchmark labels are explicit relevance judgments for this fixed corpus, not proof that retrieved content is factually correct or that citations support a claim. The suite measures retrieval behavior only; broader research-quality dimensions remain available in each run's deterministic quality assessment. Add new versioned datasets rather than silently changing labels in an existing version, and review relevance judgments when benchmark versions change.
 
+## Governed autonomous improvement
+
+Phase 22 adds evidence-driven improvement cycles over completed research runs. Create a cycle with:
+
+```powershell
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/research/runs/<RUN_ID>/improvement-cycles"
+```
+
+List cycles and proposals with `GET /research/runs/{run_id}/improvement-cycles` and `GET /research/improvement-cycles/{cycle_id}/proposals`. Proposals include a stable ID, evidence digest, source references, rationale, and a bounded recommended action.
+
+Every proposal starts in `proposed` state. An authorized operator/admin must explicitly approve or reject it using the `/research/improvement-proposals/{proposal_id}/approve` or `/reject` endpoint. Rejections require a reason. An approved proposal can be marked validated only against a persisted experiment result belonging to the same research run; the validation record retains the result ID and pass/fail outcome. Cycles close when every proposal is rejected or validated.
+
+The detector uses missing registered tools, failed execution records, and the deterministic research-quality dimensions. Analysis is deterministic for a given persisted evidence snapshot and creates an idempotent cycle keyed by its SHA-256 digest. The default quality floor is 0.80.
+
+**Governance and safety boundary:** proposals are recommendations, not executable plans. Approval does not execute code or automatically change tools, prompts, dependencies, configuration, or deployments. Experiments remain constrained to application-registered trusted adapters and their existing input contracts. A human must implement and review any capability change separately, then evaluate it using recorded evidence. Reviewer values supplied to the API are audit labels; deployments should restrict write access to authenticated operator/admin identities.
+
 ## Production deployment (Docker Compose)
 
 Phase 20 provides a production-oriented container image and a lightweight Compose deployment:
