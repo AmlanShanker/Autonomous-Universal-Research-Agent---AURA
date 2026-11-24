@@ -10,7 +10,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: dependency-audit-${{ github.workflow }}-${{ github.ref }}
@@ -22,6 +22,9 @@ jobs:
     steps:
       - name: Check out source
         uses: actions/checkout@v7
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name || github.repository }}
+          ref: ${{ github.event.pull_request.head.ref || github.ref_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -32,6 +35,27 @@ jobs:
         uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
+
+      # Refresh only the vulnerable packages on same-repository PRs, then
+      # persist the regenerated lockfile so CI, Docker builds, and developers
+      # all consume the same patched dependency versions.
+      - name: Refresh vulnerable locked dependencies
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          uv lock --upgrade-package certifi --upgrade-package dnspython --upgrade-package pymongo
+
+      - name: Commit refreshed lockfile
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+        run: |
+          if ! git diff --quiet -- uv.lock; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add uv.lock
+            git commit -m "chore: update vulnerable locked dependencies"
+            git push origin "HEAD:${{ github.event.pull_request.head.ref }}"
+          else
+            echo "Dependency lockfile is already current."
+          fi
 
       - name: Export locked production dependencies
         run: uv export --frozen --no-dev --no-emit-project --format requirements-txt > requirements-audit.txt
