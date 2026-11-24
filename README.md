@@ -326,3 +326,10 @@ Example key configuration:
 
 Do not expose these service API keys in browser code. Use a trusted backend-for-frontend
 or a dedicated end-user session service for browser authentication.
+
+
+### Production container security baseline
+
+The API and worker Compose services run with Linux privilege escalation disabled, all Linux capabilities dropped, a bounded PID count, and a small `noexec`/`nosuid` temporary filesystem. These controls reduce container privileges; they are not a replacement for an OS-level sandbox, network egress policy, or a hardened container runtime. The MongoDB service remains isolated to the optional local-development profile and is not exposed through a published host port.
+
+The dependency security workflow audits the locked production dependency set with `pip-audit` on pull requests, pushes to `main`, and a weekly schedule. Findings are treated as a failing check so vulnerable locked packages can be reviewed and updated deliberately. The audit does not scan container base-image packages or replace image scanning.
