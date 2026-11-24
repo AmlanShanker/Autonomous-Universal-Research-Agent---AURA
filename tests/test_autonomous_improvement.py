@@ -72,6 +72,19 @@ def test_analysis_creates_deterministic_evidence_backed_proposals():
     assert len({item.evidence_refs[0] for item in repeated_gap_proposals}) == 2
 
 
+def test_cycle_identity_changes_when_registered_capabilities_change():
+    database = seeded_database()
+    first = AutonomousImprovementEngine(
+        database, FakeRegistry({"literature_search"})
+    ).analyze_run("run_improvement")
+    second = AutonomousImprovementEngine(
+        database, FakeRegistry({"literature_search", "specialized_search"})
+    ).analyze_run("run_improvement")
+
+    assert first.cycle_id != second.cycle_id
+    assert first.evidence_sha256 != second.evidence_sha256
+
+
 def test_approval_is_required_before_validation_and_reviewer_is_recorded():
     database = seeded_database()
     engine = AutonomousImprovementEngine(database, FakeRegistry({"literature_search"}))
