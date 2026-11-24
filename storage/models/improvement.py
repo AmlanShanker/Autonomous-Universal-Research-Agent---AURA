@@ -50,3 +50,10 @@ class ImprovementCycle(BaseModel):
     summary: str = Field(min_length=1, max_length=2000)
     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
     completed_at: datetime | None = None
+
+    @field_validator("proposal_ids")
+    @classmethod
+    def require_unique_proposal_ids(cls, value: list[str]) -> list[str]:
+        if len(value) != len(set(value)):
+            raise ValueError("Improvement cycle proposal IDs must be unique.")
+        return value
