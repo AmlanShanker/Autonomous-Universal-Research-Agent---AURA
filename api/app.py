@@ -7,7 +7,7 @@ from collections.abc import Callable
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from dotenv import load_dotenv
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agents.experiment_adapters import (
     build_default_experiment_adapters,
@@ -58,11 +58,9 @@ class ResearchRunCreated(BaseModel):
     tasks: list[ResearchTask]
 
 
-class ImprovementReviewRequest(BaseModel):
-    reviewer: str = Field(min_length=1, max_length=120)
+class ImprovementRejectionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
-
-class ImprovementRejectionRequest(ImprovementReviewRequest):
     reason: str = Field(min_length=1, max_length=2000)
 
 
@@ -141,6 +139,7 @@ def create_app(
         with bind_context(trace_id=trace_id, request_id=request_id), span("api.request", component="api", operation=request.method):
             try:
                 principal = authenticator.authenticate(request.headers.get("authorization"))
+                request.state.api_principal = principal
                 client_host = request.client.host if request.client else None
                 if authenticator.enabled and principal is not None:
                     identity = f"key:{principal.key_id}"
@@ -496,9 +495,11 @@ def create_app(
         response_model=ImprovementProposal,
         tags=["improvement"],
     )
-    def approve_improvement(proposal_id: str, request: ImprovementReviewRequest) -> ImprovementProposal:
+    def approve_improvement(proposal_id: str, request: Request) -> ImprovementProposal:
         try:
-            return AutonomousImprovementEngine(db, registry_factory(db)).approve(proposal_id, request.reviewer)
+            return AutonomousImprovementEngine(db, registry_factory(db)).approve(
+                proposal_id, request.state.api_principal.key_id
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
         except ValueError as exc:
@@ -509,10 +510,12 @@ def create_app(
         response_model=ImprovementProposal,
         tags=["improvement"],
     )
-    def reject_improvement(proposal_id: str, request: ImprovementRejectionRequest) -> ImprovementProposal:
+    def reject_improvement(
+        proposal_id: str, payload: ImprovementRejectionRequest, request: Request
+    ) -> ImprovementProposal:
         try:
             return AutonomousImprovementEngine(db, registry_factory(db)).reject(
-                proposal_id, request.reviewer, request.reason
+                proposal_id, request.state.api_principal.key_id, payload.reason
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
