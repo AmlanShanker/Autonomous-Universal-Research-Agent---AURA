@@ -1,0 +1,164 @@
+{
+  "benchmark_id": "aura-research-memory-retrieval-core",
+  "version": "1.0.0",
+  "description": "Curated labeled queries covering core AURA platform research memories. Labels are relevance judgments, not factual truth labels.",
+  "k": 3,
+  "minimum_metrics": {
+    "precision_at_k": 0.3,
+    "recall_at_k": 0.9,
+    "mean_reciprocal_rank": 0.9,
+    "ndcg_at_k": 0.9
+  },
+  "memories": [
+    {
+      "memory_id": "core_rag_reranking",
+      "run_id": "benchmark",
+      "task_id": "rag",
+      "research_question": "How does retrieval augmented generation reranking work?",
+      "content": "A reranker scores candidate passages after initial retrieval to improve relevance ordering.",
+      "tags": [
+        "retrieval",
+        "augmented",
+        "generation",
+        "reranking",
+        "ranking"
+      ]
+    },
+    {
+      "memory_id": "core_worker_fencing",
+      "run_id": "benchmark",
+      "task_id": "worker",
+      "research_question": "How do worker leases and fencing tokens prevent stale updates?",
+      "content": "Lease ownership tokens fence stale workers and prevent expired owners from overwriting replacement state.",
+      "tags": [
+        "worker",
+        "lease",
+        "fencing",
+        "token",
+        "ownership"
+      ]
+    },
+    {
+      "memory_id": "core_experiment_snapshots",
+      "run_id": "benchmark",
+      "task_id": "experiment",
+      "research_question": "How are experiment parameter snapshots used for reproducibility?",
+      "content": "Immutable parameter snapshots and environment manifests preserve experiment inputs and runtime provenance.",
+      "tags": [
+        "experiment",
+        "parameter",
+        "snapshots",
+        "reproducibility",
+        "environment"
+      ]
+    },
+    {
+      "memory_id": "core_source_provenance",
+      "run_id": "benchmark",
+      "task_id": "sources",
+      "research_question": "How does scholarly source provenance and DOI deduplication work?",
+      "content": "DOI and arXiv identifiers create canonical source identities and duplicate records retain richer metadata.",
+      "tags": [
+        "source",
+        "doi",
+        "arxiv",
+        "provenance",
+        "deduplication"
+      ]
+    },
+    {
+      "memory_id": "core_api_auth",
+      "run_id": "benchmark",
+      "task_id": "api",
+      "research_question": "How does bearer authentication and role authorization protect the API?",
+      "content": "Bearer API keys map identities to reader operator and admin roles with endpoint authorization.",
+      "tags": [
+        "api",
+        "authentication",
+        "bearer",
+        "roles",
+        "authorization"
+      ]
+    },
+    {
+      "memory_id": "core_deployment",
+      "run_id": "benchmark",
+      "task_id": "deploy",
+      "research_question": "How does managed MongoDB deployment keep durable data off a laptop?",
+      "content": "API and worker containers share a managed MongoDB URI while local MongoDB is an opt-in profile.",
+      "tags": [
+        "managed",
+        "mongodb",
+        "deployment",
+        "docker",
+        "storage"
+      ]
+    },
+    {
+      "memory_id": "core_metrics",
+      "run_id": "benchmark",
+      "task_id": "metrics",
+      "research_question": "How are process metrics and structured logs correlated?",
+      "content": "Request trace run job and task identifiers correlate structured logs and Prometheus metrics.",
+      "tags": [
+        "metrics",
+        "logs",
+        "tracing",
+        "observability",
+        "prometheus"
+      ]
+    },
+    {
+      "memory_id": "core_memory",
+      "run_id": "benchmark",
+      "task_id": "memory",
+      "research_question": "How does research memory retrieval rank previous findings?",
+      "content": "A deterministic retriever combines query term overlap in tags content and research questions.",
+      "tags": [
+        "memory",
+        "retrieval",
+        "ranking",
+        "query",
+        "findings"
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "query": "retrieval augmented generation reranking",
+      "relevant_memory_ids": [
+        "core_rag_reranking"
+      ]
+    },
+    {
+      "query": "worker lease fencing token ownership",
+      "relevant_memory_ids": [
+        "core_worker_fencing"
+      ]
+    },
+    {
+      "query": "experiment parameter snapshots reproducibility environment",
+      "relevant_memory_ids": [
+        "core_experiment_snapshots"
+      ]
+    },
+    {
+      "query": "source DOI arxiv provenance deduplication",
+      "relevant_memory_ids": [
+        "core_source_provenance"
+      ]
+    },
+    {
+      "query": "API authentication bearer roles authorization",
+      "relevant_memory_ids": [
+        "core_api_auth"
+      ]
+    },
+    {
+      "query": "managed MongoDB deployment docker storage",
+      "relevant_memory_ids": [
+        "core_deployment"
+      ]
+    }
+  ]
+}

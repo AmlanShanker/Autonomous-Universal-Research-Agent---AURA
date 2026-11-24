@@ -51,6 +51,9 @@ jobs:
       - name: Run complete test suite
         run: uv run pytest -q
 
+      - name: Run offline research evaluation benchmarks
+        run: uv run python -m evaluation.run_benchmarks
+
       - name: Prepare Compose interpolation environment
         run: cp .env.example .env
 

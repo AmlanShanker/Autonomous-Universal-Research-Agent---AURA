@@ -1,0 +1,132 @@
+{
+  "benchmark_id": "aura-research-memory-retrieval-edge",
+  "version": "1.0.0",
+  "description": "Labeled multi-relevant and overlapping-topic retrieval cases to expose ranking regressions. Relevance labels are human-curated benchmark annotations.",
+  "k": 3,
+  "minimum_metrics": {
+    "precision_at_k": 0.35,
+    "recall_at_k": 0.9,
+    "mean_reciprocal_rank": 0.9,
+    "ndcg_at_k": 0.85
+  },
+  "memories": [
+    {
+      "memory_id": "edge_api_bearer",
+      "run_id": "benchmark",
+      "task_id": "api",
+      "research_question": "How does API bearer authentication work?",
+      "content": "Bearer authentication validates API keys and associates each key with a role.",
+      "tags": [
+        "api",
+        "authentication",
+        "bearer",
+        "authorization",
+        "roles"
+      ]
+    },
+    {
+      "memory_id": "edge_api_roles",
+      "run_id": "benchmark",
+      "task_id": "roles",
+      "research_question": "How are API roles authorized?",
+      "content": "Reader operator and admin roles determine which endpoints may be accessed.",
+      "tags": [
+        "api",
+        "roles",
+        "authorization",
+        "reader",
+        "operator",
+        "admin"
+      ]
+    },
+    {
+      "memory_id": "edge_worker_lease",
+      "run_id": "benchmark",
+      "task_id": "worker",
+      "research_question": "How does worker lease renewal work?",
+      "content": "Workers renew leases while holding the current fencing token.",
+      "tags": [
+        "worker",
+        "lease",
+        "renewal",
+        "fencing",
+        "token"
+      ]
+    },
+    {
+      "memory_id": "edge_worker_attempts",
+      "run_id": "benchmark",
+      "task_id": "attempts",
+      "research_question": "How are worker attempts persisted?",
+      "content": "Each worker claim creates a durable attempt record with outcome and timestamps.",
+      "tags": [
+        "worker",
+        "attempts",
+        "durable",
+        "history",
+        "jobs"
+      ]
+    },
+    {
+      "memory_id": "edge_source_doi",
+      "run_id": "benchmark",
+      "task_id": "source",
+      "research_question": "How are DOI identities canonicalized?",
+      "content": "DOI values are normalized to stable canonical source identities.",
+      "tags": [
+        "doi",
+        "source",
+        "canonical",
+        "identity",
+        "normalization"
+      ]
+    },
+    {
+      "memory_id": "edge_source_arxiv",
+      "run_id": "benchmark",
+      "task_id": "arxiv",
+      "research_question": "How are arXiv identifiers used in source deduplication?",
+      "content": "arXiv identifiers provide canonical identity when a DOI is not available.",
+      "tags": [
+        "arxiv",
+        "source",
+        "deduplication",
+        "canonical",
+        "identity"
+      ]
+    }
+  ],
+  "queries": [
+    {
+      "query": "API authentication bearer roles authorization",
+      "relevant_memory_ids": [
+        "edge_api_bearer",
+        "edge_api_roles"
+      ]
+    },
+    {
+      "query": "worker lease renewal fencing token",
+      "relevant_memory_ids": [
+        "edge_worker_lease"
+      ]
+    },
+    {
+      "query": "worker durable attempts history jobs",
+      "relevant_memory_ids": [
+        "edge_worker_attempts"
+      ]
+    },
+    {
+      "query": "source DOI canonical identity normalization",
+      "relevant_memory_ids": [
+        "edge_source_doi"
+      ]
+    },
+    {
+      "query": "source arxiv deduplication canonical identity",
+      "relevant_memory_ids": [
+        "edge_source_arxiv"
+      ]
+    }
+  ]
+}
