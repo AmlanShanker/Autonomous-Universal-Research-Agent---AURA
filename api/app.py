@@ -169,18 +169,23 @@ def create_app(
                         )
                     else:
                         resource_run = None
+                        resource_found = False
                         if len(parts) >= 3 and parts[0:2] == ["research", "runs"]:
                             resource_run = db.get_research_run(parts[2])
+                            resource_found = resource_run is not None
                         elif len(parts) >= 3 and parts[0:2] == ["research", "jobs"] and parts[2] != "queue":
                             resource_job = db.get_research_job(parts[2])
+                            resource_found = resource_job is not None
                             if resource_job is not None:
                                 resource_run = db.get_research_run(resource_job.run_id)
                         elif len(parts) == 3 and parts[0:2] == ["research", "reports"]:
                             resource_report = db.get_research_report(parts[2])
+                            resource_found = resource_report is not None
                             if resource_report is not None:
                                 resource_run = db.get_research_run(resource_report.run_id)
-                        if resource_run is not None and (
-                            principal is None or resource_run.tenant_id != principal.tenant_id
+                        if resource_found and (
+                            resource_run is None or principal is None
+                            or resource_run.tenant_id != principal.tenant_id
                         ):
                             response = JSONResponse(
                                 status_code=404,
@@ -214,24 +219,6 @@ def create_app(
                         )
                     else:
                         response = await call_next(request)
-
-                elif authenticator.enabled and request.url.path != "/health" and principal is None:
-                    response = JSONResponse(
-                        status_code=401,
-                        content={"detail": "A valid bearer API key is required."},
-                        headers={"WWW-Authenticate": "Bearer"},
-                    )
-                elif (
-                    authenticator.enabled
-                    and request.url.path != "/health"
-                    and _role_level(principal.role) < (1 if request.method in {"GET", "HEAD", "OPTIONS"} else 2)
-                ):
-                    response = JSONResponse(
-                        status_code=403,
-                        content={"detail": "The API key role is not permitted to perform this operation."},
-                    )
-                else:
-                    response = await call_next(request)
 
                 route = request.scope.get("route")
                 route_name = getattr(route, "path", "unmatched")
