@@ -35,9 +35,10 @@ Do not put provider API keys, MongoDB credentials, or other backend secrets in V
 
 ## Current scope
 
-- Responsive AURA research workspace shell.
+- Responsive AURA research workspace with Overview, Research runs, and Agent pipeline pages.
 - Backend health status via `GET /health`.
 - Research run creation via `POST /research/runs`.
-- Displays the returned research plan and task graph.
+- Tenant-scoped persisted run history via `GET /research/runs`.
+- Read-only task graph inspection via `GET /research/runs/{run_id}/tasks`, including task status and declared dependencies.
 
-Research execution, run history persistence, authentication UX, and report browsing are intentionally left for follow-up frontend milestones.
+Execution controls, end-user authentication/session UX, and report browsing remain follow-up milestones. The browser must never receive privileged provider or service API credentials.

@@ -291,6 +291,13 @@ def create_app(
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
+    @app.get("/research/runs", response_model=list[ResearchRun], tags=["research"])
+    def list_research_runs(raw_request: Request) -> list[ResearchRun]:
+        """List only the authenticated tenant's research runs, newest first."""
+        principal = getattr(raw_request.state, "api_principal", None)
+        tenant_id = principal.tenant_id if principal is not None else "development"
+        return db.list_research_runs(tenant_id)
+
     @app.get("/research/runs/{run_id}", response_model=ResearchRun, tags=["research"])
     def get_research_run(run_id: str) -> ResearchRun:
         run = db.get_research_run(run_id)

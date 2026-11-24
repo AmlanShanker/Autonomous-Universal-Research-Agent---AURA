@@ -124,6 +124,10 @@ class Database(ABC):
         pass
 
     @abstractmethod
+    def list_research_runs(self, tenant_id: str) -> list[ResearchRun]:
+        pass
+
+    @abstractmethod
     def save_tool(self, tool: ToolDefinition) -> None:
         pass
 

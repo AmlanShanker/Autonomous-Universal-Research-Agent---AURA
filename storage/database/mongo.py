@@ -425,6 +425,15 @@ class MongoDatabase(Database):
     def save_research_run(self, run: ResearchRun) -> None:
         self.research_runs.replace_one({"run_id": run.run_id}, run.model_dump(), upsert=True)
 
+    def list_research_runs(self, tenant_id: str) -> list[ResearchRun]:
+        """Return newest-first runs owned by one tenant."""
+        documents = list(self.research_runs.find({"tenant_id": tenant_id}))
+        runs = []
+        for document in reversed(documents):
+            document.pop("_id", None)
+            runs.append(ResearchRun.model_validate(document))
+        return runs
+
     def save_tool(self, tool: ToolDefinition) -> None:
         self.tools.replace_one({"tool_id": tool.tool_id}, tool.model_dump(), upsert=True)
 

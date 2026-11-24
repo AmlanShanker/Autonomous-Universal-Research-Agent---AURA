@@ -285,6 +285,14 @@ class InMemoryDatabase(Database):
     def save_research_run(self, run: ResearchRun) -> None:
         self.research_runs[run.run_id] = run.model_copy(deep=True)
 
+    def list_research_runs(self, tenant_id: str) -> list[ResearchRun]:
+        """Return newest-first runs owned by one tenant."""
+        return [
+            run.model_copy(deep=True)
+            for run in reversed(list(self.research_runs.values()))
+            if run.tenant_id == tenant_id
+        ]
+
     def save_tool(self, tool: ToolDefinition) -> None:
         self.tools[tool.tool_id] = tool
 
