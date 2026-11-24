@@ -74,8 +74,11 @@ class ImprovementValidationRequest(BaseModel):
 
 def _improvement_reviewer_identity(request: Request) -> str:
     """Return a trusted credential ID, or an explicit marker in unauthenticated local mode."""
+    authenticator = request.app.state.api_authenticator
     principal = getattr(request.state, "api_principal", None)
-    return principal.key_id if principal is not None else "unauthenticated"
+    if authenticator.enabled and principal is not None:
+        return principal.key_id
+    return "unauthenticated"
 
 
 def _default_database() -> Database:
