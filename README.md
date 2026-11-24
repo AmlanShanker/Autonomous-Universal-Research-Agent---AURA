@@ -299,3 +299,30 @@ docker compose up -d --no-build
 ### Deployment boundaries
 
 The container runs as a non-root user and does not execute LLM-generated source code. API and worker use the same configured MongoDB database. Request-rate limiting and observability metrics are process-local, so multiple replicas do not share counters or rate-limit state. Use a shared gateway/limiter and an external metrics collector when scaling horizontally. Use a restricted host/container runtime, network egress controls, TLS, and managed secrets for deployments exposed to untrusted users.
+
+
+### Multi-tenant API keys
+
+When API authentication is enabled, each entry in `AURA_API_KEYS` may include a
+`tenant_id` (1–80 characters). Keys without an explicit tenant ID are isolated
+under their key ID. Research runs created through the API are stamped with the
+authenticated tenant ID. Run, job, and report routes enforce ownership through
+their parent research run and return 404 for resources owned by another tenant.
+
+Existing persisted runs without a `tenant_id` are treated as unassigned legacy
+data and are not exposed to authenticated tenant keys. Assign legacy records
+through a controlled, audited administrative migration before making them
+available to a tenant. Queue-wide statistics remain unavailable to authenticated
+tenant keys because the current queue aggregate is global rather than tenant-scoped.
+
+Example key configuration:
+
+```json
+[
+  {"id": "frontend-workspace-a", "key": "REPLACE_WITH_A_RANDOM_SECRET_AT_LEAST_32_CHARS", "role": "operator", "tenant_id": "workspace-a"},
+  {"id": "frontend-workspace-b", "key": "REPLACE_WITH_A_DIFFERENT_RANDOM_SECRET", "role": "reader", "tenant_id": "workspace-b"}
+]
+```
+
+Do not expose these service API keys in browser code. Use a trusted backend-for-frontend
+or a dedicated end-user session service for browser authentication.

@@ -90,6 +90,9 @@ class ResearchRun(BaseModel):
 
     run_id: str
 
+    # Legacy records remain unassigned and are denied to tenant-scoped API principals.
+    tenant_id: str | None = None
+
     research_question: str
 
     status: ResearchRunStatus = ResearchRunStatus.CREATED
