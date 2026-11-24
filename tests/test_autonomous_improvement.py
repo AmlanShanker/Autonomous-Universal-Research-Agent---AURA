@@ -229,9 +229,12 @@ def test_improvement_review_identity_comes_from_authenticated_api_key(monkeypatc
     monkeypatch.setenv("AURA_API_AUTH_ENABLED", "true")
     monkeypatch.setenv(
         "AURA_API_KEYS",
-        json.dumps([{"id": "trusted-operator-42", "key": reviewer_key, "role": "operator"}]),
+        json.dumps([{"id": "trusted-operator-42", "key": reviewer_key, "role": "operator", "tenant_id": "reviewer-tenant"}]),
     )
     database = seeded_database()
+    run = database.get_research_run("run_improvement")
+    run.tenant_id = "reviewer-tenant"
+    database.save_research_run(run)
     app = create_app(
         database=database,
         experiment_adapters={},
