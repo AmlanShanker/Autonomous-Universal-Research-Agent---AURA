@@ -71,6 +71,24 @@ def test_create_research_run_rejects_blank_question():
     assert response.status_code == 422
 
 
+def test_list_research_runs_returns_only_the_current_tenants_runs():
+    client, database = client_with_fakes()
+    created = client.post("/research/runs", json={"question": "How do task graphs work?"}).json()
+    foreign_run = ResearchRun(
+        run_id="foreign-run",
+        research_question="A different tenant question",
+        tenant_id="another-tenant",
+    )
+    database.save_research_run(foreign_run)
+
+    response = client.get("/research/runs")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert [item["run_id"] for item in payload] == [created["run"]["run_id"]]
+    assert all(item["tenant_id"] == "development" for item in payload)
+
+
 def test_get_run_and_tasks_return_404_for_unknown_run():
     client, _ = client_with_fakes()
 
