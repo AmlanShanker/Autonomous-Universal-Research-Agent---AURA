@@ -182,7 +182,7 @@ Benchmark labels are explicit relevance judgments for this fixed corpus, not pro
 Phase 22 adds evidence-driven improvement cycles over completed research runs. Create a cycle with:
 
 ```powershell
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/research/runs/<RUN_ID>/improvement-cycles" -Headers $headers
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8000/research/runs/<RUN_ID>/improvement-cycles"
 ```
 
 List cycles and proposals with `GET /research/runs/{run_id}/improvement-cycles` and `GET /research/improvement-cycles/{cycle_id}/proposals`. Proposals include a stable ID, evidence digest, source references, rationale, and a bounded recommended action.
