@@ -19,6 +19,7 @@ _ROLE_LEVEL = {"reader": 1, "operator": 2, "admin": 3}
 class APIPrincipal:
     key_id: str
     role: str
+    tenant_id: str
 
 
 class APIKeyAuthenticator:
@@ -26,21 +27,25 @@ class APIKeyAuthenticator:
 
     def __init__(self, *, enabled: bool, keys: list[dict[str, str]] | None = None):
         self.enabled = enabled
-        self._keys: list[tuple[str, str, str]] = []
+        self._keys: list[tuple[str, str, str, str]] = []
         seen_ids: set[str] = set()
         seen_digests: set[str] = set()
         for entry in keys or []:
             raw_id = entry.get("id", "")
             raw_key = entry.get("key", "")
             raw_role = entry.get("role", "")
-            if not isinstance(raw_id, str) or not isinstance(raw_role, str):
-                raise ValueError("Each API key id and role must be strings.")
+            raw_tenant = entry.get("tenant_id", raw_id)
+            if not isinstance(raw_id, str) or not isinstance(raw_role, str) or not isinstance(raw_tenant, str):
+                raise ValueError("Each API key id, role, and tenant_id must be strings.")
             key_id = raw_id.strip()
             role = raw_role.strip().lower()
+            tenant_id = raw_tenant.strip()
             if not key_id or len(key_id) > 80:
                 raise ValueError("Each API key requires an id of 1 to 80 characters.")
             if not isinstance(raw_key, str) or len(raw_key) < 32:
                 raise ValueError("API keys must contain at least 32 characters.")
+            if not tenant_id or len(tenant_id) > 80:
+                raise ValueError("Each API key requires a tenant_id of 1 to 80 characters.")
             if role not in _ALLOWED_ROLES:
                 raise ValueError("API key role must be reader, operator, or admin.")
             digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()
@@ -48,7 +53,7 @@ class APIKeyAuthenticator:
                 raise ValueError("API key ids and key values must be unique.")
             seen_ids.add(key_id)
             seen_digests.add(digest)
-            self._keys.append((key_id, digest, role))
+            self._keys.append((key_id, digest, role, tenant_id))
         if self.enabled and not self._keys:
             raise RuntimeError(
                 "AURA_API_AUTH_ENABLED=true requires at least one entry in AURA_API_KEYS."
@@ -73,7 +78,7 @@ class APIKeyAuthenticator:
 
     def authenticate(self, authorization: str | None) -> APIPrincipal | None:
         if not self.enabled:
-            return APIPrincipal(key_id="development", role="admin")
+            return APIPrincipal(key_id="development", role="admin", tenant_id="development")
         if not authorization:
             return None
         scheme, separator, token = authorization.partition(" ")
@@ -82,9 +87,9 @@ class APIKeyAuthenticator:
         candidate = hashlib.sha256(token.strip().encode("utf-8")).hexdigest()
         matched: APIPrincipal | None = None
         # Compare every configured digest to avoid stopping at the matching key.
-        for key_id, digest, role in self._keys:
+        for key_id, digest, role, tenant_id in self._keys:
             if hmac.compare_digest(candidate, digest):
-                matched = APIPrincipal(key_id=key_id, role=role)
+                matched = APIPrincipal(key_id=key_id, role=role, tenant_id=tenant_id)
         return matched
 
 
