@@ -58,6 +58,10 @@ class ResearchRunCreated(BaseModel):
     tasks: list[ResearchTask]
 
 
+class ImprovementApprovalRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+
 class ImprovementRejectionRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -495,7 +499,11 @@ def create_app(
         response_model=ImprovementProposal,
         tags=["improvement"],
     )
-    def approve_improvement(proposal_id: str, request: Request) -> ImprovementProposal:
+    def approve_improvement(
+        proposal_id: str,
+        request: Request,
+        payload: ImprovementApprovalRequest | None = None,
+    ) -> ImprovementProposal:
         try:
             return AutonomousImprovementEngine(db, registry_factory(db)).approve(
                 proposal_id, request.state.api_principal.key_id
