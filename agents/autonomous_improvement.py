@@ -34,8 +34,19 @@ class AutonomousImprovementEngine:
 
         executions = self.database.list_execution_results_for_run(run_id)
         experiments = self.database.list_experiment_results_for_run(run_id)
+        capability_availability = [
+            {
+                "task_id": task.task_id,
+                "tool": tool_name,
+                "available": bool(self.tool_registry.has(tool_name)),
+            }
+            for task in tasks
+            for tool_name in task.required_tools
+        ]
         evidence = {
-            "run_id": run_id,
+            "run": run.model_dump(mode="json"),
+            "quality_floor": self.quality_floor,
+            "capability_availability": capability_availability,
             "tasks": [task.model_dump(mode="json") for task in tasks],
             "executions": [item.model_dump(mode="json") for item in executions],
             "experiments": [item.model_dump(mode="json") for item in experiments],
