@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from collections.abc import Callable
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse
 from dotenv import load_dotenv
 from pydantic import BaseModel, ConfigDict, Field
@@ -617,6 +618,28 @@ def create_app(
         if report is None:
             raise HTTPException(status_code=404, detail="Research report not found.")
         return report
+
+    cors_origins = [
+        origin.strip()
+        for origin in os.getenv(
+            "AURA_CORS_ORIGINS",
+            "http://127.0.0.1:5173,http://localhost:5173",
+        ).split(",")
+        if origin.strip()
+    ]
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=cors_origins,
+        allow_credentials=False,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=[
+            "Authorization",
+            "Content-Type",
+            "Idempotency-Key",
+            "Traceparent",
+            "X-Request-ID",
+        ],
+    )
 
     return app
 
