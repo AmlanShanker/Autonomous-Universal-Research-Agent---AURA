@@ -17,11 +17,13 @@ from agents.llm_client import LLMClient
 from agents.research_director import ResearchDirector
 from agents.research_reporter import ResearchReportBuilder
 from agents.task_executor import TaskExecutor
+from agents.autonomous_improvement import AutonomousImprovementEngine
 from storage.database.base import Database
 from storage.database.memory import InMemoryDatabase
 from storage.database.mongo import MongoDatabase
 from config.database import database_uri_from_environment
 from storage.models.experiment import ExperimentResult
+from storage.models.improvement import ImprovementCycle, ImprovementProposal
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.job_stats import ResearchJobQueueStats
@@ -54,6 +56,18 @@ class ResearchRunCreated(BaseModel):
     run: ResearchRun
     plan: ResearchPlan
     tasks: list[ResearchTask]
+
+
+class ImprovementReviewRequest(BaseModel):
+    reviewer: str = Field(min_length=1, max_length=120)
+
+
+class ImprovementRejectionRequest(ImprovementReviewRequest):
+    reason: str = Field(min_length=1, max_length=2000)
+
+
+class ImprovementValidationRequest(BaseModel):
+    experiment_result_id: str = Field(min_length=1, max_length=200)
 
 
 def _default_database() -> Database:
@@ -430,6 +444,95 @@ def create_app(
         if db.get_research_run(run_id) is None:
             raise HTTPException(status_code=404, detail="Research run not found.")
         return db.list_experiment_results_for_run(run_id)
+
+    @app.post(
+        "/research/runs/{run_id}/improvement-cycles",
+        response_model=ImprovementCycle,
+        status_code=201,
+        tags=["improvement"],
+    )
+    def create_improvement_cycle(run_id: str) -> ImprovementCycle:
+        if db.get_research_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Research run not found.")
+        try:
+            engine = AutonomousImprovementEngine(db, registry_factory(db))
+            return engine.analyze_run(run_id)
+        except (KeyError, ValueError) as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.get(
+        "/research/runs/{run_id}/improvement-cycles",
+        response_model=list[ImprovementCycle],
+        tags=["improvement"],
+    )
+    def list_improvement_cycles(run_id: str) -> list[ImprovementCycle]:
+        if db.get_research_run(run_id) is None:
+            raise HTTPException(status_code=404, detail="Research run not found.")
+        return db.list_improvement_cycles_for_run(run_id)
+
+    @app.get(
+        "/research/improvement-cycles/{cycle_id}",
+        response_model=ImprovementCycle,
+        tags=["improvement"],
+    )
+    def get_improvement_cycle(cycle_id: str) -> ImprovementCycle:
+        cycle = db.get_improvement_cycle(cycle_id)
+        if cycle is None:
+            raise HTTPException(status_code=404, detail="Improvement cycle not found.")
+        return cycle
+
+    @app.get(
+        "/research/improvement-cycles/{cycle_id}/proposals",
+        response_model=list[ImprovementProposal],
+        tags=["improvement"],
+    )
+    def list_improvement_proposals(cycle_id: str) -> list[ImprovementProposal]:
+        if db.get_improvement_cycle(cycle_id) is None:
+            raise HTTPException(status_code=404, detail="Improvement cycle not found.")
+        return db.list_improvement_proposals_for_cycle(cycle_id)
+
+    @app.post(
+        "/research/improvement-proposals/{proposal_id}/approve",
+        response_model=ImprovementProposal,
+        tags=["improvement"],
+    )
+    def approve_improvement(proposal_id: str, request: ImprovementReviewRequest) -> ImprovementProposal:
+        try:
+            return AutonomousImprovementEngine(db, registry_factory(db)).approve(proposal_id, request.reviewer)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post(
+        "/research/improvement-proposals/{proposal_id}/reject",
+        response_model=ImprovementProposal,
+        tags=["improvement"],
+    )
+    def reject_improvement(proposal_id: str, request: ImprovementRejectionRequest) -> ImprovementProposal:
+        try:
+            return AutonomousImprovementEngine(db, registry_factory(db)).reject(
+                proposal_id, request.reviewer, request.reason
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    @app.post(
+        "/research/improvement-proposals/{proposal_id}/validate",
+        response_model=ImprovementProposal,
+        tags=["improvement"],
+    )
+    def validate_improvement(proposal_id: str, request: ImprovementValidationRequest) -> ImprovementProposal:
+        try:
+            return AutonomousImprovementEngine(db, registry_factory(db)).validate(
+                proposal_id, request.experiment_result_id
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     @app.post("/research/runs/{run_id}/report", response_model=ResearchReport, tags=["reports"])
     def create_run_report(run_id: str) -> ResearchReport:
