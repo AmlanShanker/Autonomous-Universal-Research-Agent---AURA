@@ -39,6 +39,13 @@ services:
       AURA_API_KEYS: ${AURA_API_KEYS:?Set AURA_API_KEYS in .env}
     ports:
       - "${AURA_BIND_ADDRESS:-127.0.0.1}:${AURA_API_PORT:-8000}:8000"
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
       interval: 30s
@@ -61,6 +68,13 @@ services:
       AURA_DATABASE_BACKEND: mongodb
       AURA_DATABASE_URI: ${AURA_DATABASE_URI:-${MONGO_URL:?Set AURA_DATABASE_URI or MONGO_URL in .env}}
       MONGODB_DATABASE: ${MONGODB_DATABASE:-aura}
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    pids_limit: 256
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
     networks:
       - aura-internal
 
