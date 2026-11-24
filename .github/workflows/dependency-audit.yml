@@ -34,7 +34,7 @@ jobs:
           enable-cache: true
 
       - name: Export locked production dependencies
-        run: uv export --frozen --no-dev --format requirements-txt > requirements-audit.txt
+        run: uv export --frozen --no-dev --no-emit-project --format requirements-txt > requirements-audit.txt
 
       - name: Audit installed dependency versions
         run: uvx pip-audit --requirement requirements-audit.txt
