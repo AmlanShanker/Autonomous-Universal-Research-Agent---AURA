@@ -72,6 +72,12 @@ class ImprovementValidationRequest(BaseModel):
     experiment_result_id: str = Field(min_length=1, max_length=200)
 
 
+def _improvement_reviewer_identity(request: Request) -> str:
+    """Return a trusted credential ID, or an explicit marker in unauthenticated local mode."""
+    principal = getattr(request.state, "api_principal", None)
+    return principal.key_id if principal is not None else "unauthenticated"
+
+
 def _default_database() -> Database:
     backend = os.getenv("AURA_DATABASE_BACKEND", "memory").strip().lower()
     if backend == "mongodb":
@@ -506,7 +512,7 @@ def create_app(
     ) -> ImprovementProposal:
         try:
             return AutonomousImprovementEngine(db, registry_factory(db)).approve(
-                proposal_id, request.state.api_principal.key_id
+                proposal_id, _improvement_reviewer_identity(request)
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
@@ -523,7 +529,7 @@ def create_app(
     ) -> ImprovementProposal:
         try:
             return AutonomousImprovementEngine(db, registry_factory(db)).reject(
-                proposal_id, request.state.api_principal.key_id, payload.reason
+                proposal_id, _improvement_reviewer_identity(request), payload.reason
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail=str(exc)) from exc
