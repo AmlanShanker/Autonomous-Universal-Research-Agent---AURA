@@ -37,7 +37,7 @@ def seeded_database():
         task_id="task_failed",
         description="Execute a tool",
         task_type="research",
-        required_tools=["literature_search"],
+        required_tools=["literature_search", "specialized_search"],
     ))
     database.save_execution_result(ExecutionResult(
         result_id="execution_failed",
@@ -66,6 +66,10 @@ def test_analysis_creates_deterministic_evidence_backed_proposals():
     assert {item.category for item in proposals} >= {"capability_gap", "execution_reliability", "research_quality"}
     assert all(item.evidence_refs for item in proposals)
     assert all(item.status == "proposed" for item in proposals)
+    repeated_gap_proposals = [item for item in proposals if item.category == "capability_gap"]
+    assert len(repeated_gap_proposals) == 2
+    assert len({item.proposal_id for item in repeated_gap_proposals}) == 2
+    assert len({item.evidence_refs[0] for item in repeated_gap_proposals}) == 2
 
 
 def test_approval_is_required_before_validation_and_reviewer_is_recorded():
