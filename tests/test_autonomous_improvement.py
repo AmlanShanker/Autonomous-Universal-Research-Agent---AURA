@@ -185,7 +185,7 @@ def test_improvement_cycle_api_supports_analysis_review_and_validation():
     proposal_id = proposals[0]["proposal_id"]
     approved = client.post(
         f"/research/improvement-proposals/{proposal_id}/approve",
-        json={"reviewer": "api-reviewer"},
+        
     )
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
@@ -217,5 +217,47 @@ def test_improvement_api_returns_not_found_for_unknown_resources():
     assert client.get("/research/improvement-cycles/missing").status_code == 404
     assert client.post(
         "/research/improvement-proposals/missing/approve",
-        json={"reviewer": "reviewer"},
+        
     ).status_code == 404
+
+
+
+def test_improvement_review_identity_comes_from_authenticated_api_key(monkeypatch):
+    import json
+
+    reviewer_key = "reviewer-key-0123456789-abcdefghijkl"
+    monkeypatch.setenv("AURA_API_AUTH_ENABLED", "true")
+    monkeypatch.setenv(
+        "AURA_API_KEYS",
+        json.dumps([{"id": "trusted-operator-42", "key": reviewer_key, "role": "operator"}]),
+    )
+    database = seeded_database()
+    app = create_app(
+        database=database,
+        experiment_adapters={},
+        tool_registry_factory=lambda _database: FakeRegistry({"literature_search"}),
+    )
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {reviewer_key}"}
+
+    cycle_response = client.post(
+        "/research/runs/run_improvement/improvement-cycles", headers=headers
+    )
+    assert cycle_response.status_code == 201
+    proposal = database.list_improvement_proposals_for_cycle(
+        cycle_response.json()["cycle_id"]
+    )[0]
+
+    spoofed = client.post(
+        f"/research/improvement-proposals/{proposal.proposal_id}/approve",
+        headers=headers,
+        json={"reviewer": "forged-admin"},
+    )
+    assert spoofed.status_code == 422
+
+    approved = client.post(
+        f"/research/improvement-proposals/{proposal.proposal_id}/approve",
+        headers=headers,
+    )
+    assert approved.status_code == 200
+    assert approved.json()["approved_by"] == "trusted-operator-42"
