@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from api.app import create_app
 from api.security import APIKeyAuthenticator, InMemoryRateLimiter
 from storage.database.memory import InMemoryDatabase
+from storage.models.research import ResearchRun
 
 
 READER_KEY = "reader-key-0123456789-abcdefghijkl"
@@ -14,8 +15,8 @@ OPERATOR_KEY = "operator-key-0123456789-abcdefghi"
 
 def configure_auth(monkeypatch, *, limit="120"):
     keys = [
-        {"id": "reader-client", "key": READER_KEY, "role": "reader"},
-        {"id": "operator-client", "key": OPERATOR_KEY, "role": "operator"},
+        {"id": "reader-client", "key": READER_KEY, "role": "reader", "tenant_id": "tenant-a"},
+        {"id": "operator-client", "key": OPERATOR_KEY, "role": "operator", "tenant_id": "tenant-a"},
     ]
     monkeypatch.setenv("AURA_API_AUTH_ENABLED", "true")
     monkeypatch.setenv("AURA_API_KEYS", json.dumps(keys))
@@ -106,3 +107,48 @@ def test_api_keys_require_unique_ids_and_strong_values():
                 {"id": "same", "key": "b" * 32, "role": "operator"},
             ],
         )
+
+
+
+def test_tenant_cannot_read_another_tenants_run(monkeypatch):
+    configure_auth(monkeypatch)
+    database = InMemoryDatabase()
+    database.save_research_run(ResearchRun(
+        run_id="tenant-a-run", tenant_id="tenant-a", research_question="A question"
+    ))
+    database.save_research_run(ResearchRun(
+        run_id="tenant-b-run", tenant_id="tenant-b", research_question="Private question"
+    ))
+    app = create_app(database=database, director=object(), experiment_adapters={})
+    client = TestClient(app)
+    headers = {"Authorization": f"Bearer {READER_KEY}"}
+
+    assert client.get("/research/runs/tenant-a-run", headers=headers).status_code == 200
+    assert client.get("/research/runs/tenant-b-run", headers=headers).status_code == 404
+
+
+def test_legacy_unassigned_run_is_not_visible_to_tenant_key(monkeypatch):
+    configure_auth(monkeypatch)
+    database = InMemoryDatabase()
+    database.save_research_run(ResearchRun(
+        run_id="legacy-run", research_question="Legacy private question"
+    ))
+    app = create_app(database=database, director=object(), experiment_adapters={})
+    response = TestClient(app).get(
+        "/research/runs/legacy-run",
+        headers={"Authorization": f"Bearer {READER_KEY}"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_api_principal_contains_configured_tenant():
+    authenticator = APIKeyAuthenticator(
+        enabled=True,
+        keys=[{"id": "client", "key": "x" * 32, "role": "reader", "tenant_id": "workspace-1"}],
+    )
+
+    principal = authenticator.authenticate(f"Bearer {'x' * 32}")
+
+    assert principal is not None
+    assert principal.tenant_id == "workspace-1"
