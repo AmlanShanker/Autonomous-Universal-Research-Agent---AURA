@@ -193,21 +193,27 @@ class Database(ABC):
         pass
 
     @abstractmethod
+    @abstractmethod
     def save_improvement_proposal(self, proposal: ImprovementProposal) -> None:
         pass
 
+    @abstractmethod
     def get_improvement_proposal(self, proposal_id: str) -> ImprovementProposal | None:
         pass
 
+    @abstractmethod
     def list_improvement_proposals_for_cycle(self, cycle_id: str) -> list[ImprovementProposal]:
         pass
 
+    @abstractmethod
     def save_improvement_cycle(self, cycle: ImprovementCycle) -> None:
         pass
 
+    @abstractmethod
     def get_improvement_cycle(self, cycle_id: str) -> ImprovementCycle | None:
         pass
 
+    @abstractmethod
     def list_improvement_cycles_for_run(self, run_id: str) -> list[ImprovementCycle]:
         pass
 
