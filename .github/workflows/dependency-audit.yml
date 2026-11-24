@@ -36,6 +36,7 @@ jobs:
         with:
           enable-cache: true
 
+      # Run against the PR head so refreshed lockfile changes are persisted before audit.
       # Refresh only the vulnerable packages on same-repository PRs, then
       # persist the regenerated lockfile so CI, Docker builds, and developers
       # all consume the same patched dependency versions.
