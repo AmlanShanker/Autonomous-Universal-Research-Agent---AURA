@@ -10,6 +10,7 @@ from storage.models.experiment import (
 from storage.models.execution import ExecutionResult
 from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
+from storage.models.improvement import ImprovementCycle, ImprovementProposal
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.job_stats import ResearchJobQueueStats
@@ -41,6 +42,8 @@ class InMemoryDatabase(Database):
         self.research_job_attempts: dict[str, ResearchJobAttempt] = {}
         self.task_checkpoints: dict[str, TaskCheckpoint] = {}
         self.research_sources: dict[str, ResearchSource] = {}
+        self.improvement_proposals: dict[str, ImprovementProposal] = {}
+        self.improvement_cycles: dict[str, ImprovementCycle] = {}
         self._job_lock = Lock()
 
     def save_research_source(self, source: ResearchSource) -> None:
@@ -332,6 +335,34 @@ class InMemoryDatabase(Database):
 
     def list_experiments_for_run(self, run_id: str) -> list[ExperimentDefinition]:
         return [item for item in self.experiments.values() if item.run_id == run_id]
+
+    def save_improvement_proposal(self, proposal: ImprovementProposal) -> None:
+        self.improvement_proposals[proposal.proposal_id] = proposal.model_copy(deep=True)
+
+    def get_improvement_proposal(self, proposal_id: str) -> ImprovementProposal | None:
+        item = self.improvement_proposals.get(proposal_id)
+        return item.model_copy(deep=True) if item is not None else None
+
+    def list_improvement_proposals_for_cycle(self, cycle_id: str) -> list[ImprovementProposal]:
+        return [
+            item.model_copy(deep=True)
+            for item in self.improvement_proposals.values()
+            if item.cycle_id == cycle_id
+        ]
+
+    def save_improvement_cycle(self, cycle: ImprovementCycle) -> None:
+        self.improvement_cycles[cycle.cycle_id] = cycle.model_copy(deep=True)
+
+    def get_improvement_cycle(self, cycle_id: str) -> ImprovementCycle | None:
+        item = self.improvement_cycles.get(cycle_id)
+        return item.model_copy(deep=True) if item is not None else None
+
+    def list_improvement_cycles_for_run(self, run_id: str) -> list[ImprovementCycle]:
+        return [
+            item.model_copy(deep=True)
+            for item in self.improvement_cycles.values()
+            if item.run_id == run_id
+        ]
 
     def save_research_memory(self, item: ResearchMemoryItem) -> None:
         if item.memory_id in self.research_memory:
