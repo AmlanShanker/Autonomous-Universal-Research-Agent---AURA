@@ -1,7 +1,7 @@
 [project]
 name = "aura"
 version = "0.1.0"
-description = "Add your description here"
+description = "Autonomous Universal Research Agent — governed, evidence-driven research automation"
 readme = "README.md"
 authors = [
     { name = "Amlan Shanker", email = "amlanshanker2005@gmail.com" }

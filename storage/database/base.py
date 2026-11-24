@@ -40,22 +40,6 @@ class Database(ABC):
     def list_research_sources(self) -> list[ResearchSource]:
         pass
 
-    @abstractmethod
-    def save_research_source(self, source: ResearchSource) -> None:
-        pass
-
-    @abstractmethod
-    def get_research_source(self, source_id: str) -> ResearchSource | None:
-        pass
-
-    @abstractmethod
-    def get_research_source_by_canonical_id(self, canonical_id: str) -> ResearchSource | None:
-        pass
-
-    @abstractmethod
-    def list_research_sources(self) -> list[ResearchSource]:
-        pass
-
     def save_research_report(self, report: ResearchReport) -> None:
         pass
 

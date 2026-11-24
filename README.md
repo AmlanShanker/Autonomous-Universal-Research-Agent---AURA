@@ -1,5 +1,19 @@
 # AURA
 
+
+## Command-line interface
+
+After installing the project, the `aura` command can start the API or background worker:
+
+```powershell
+aura api
+aura api --host 0.0.0.0 --port 8000
+aura worker
+```
+
+The worker requires the configured persistent MongoDB backend. The API defaults to local development settings unless deployment configuration enables authentication.
+
+
 ## Autonomous Universal Research Agent
 
 AURA is an agentic AI research system designed to autonomously:
