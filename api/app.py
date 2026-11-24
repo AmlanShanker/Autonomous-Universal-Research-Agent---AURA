@@ -160,7 +160,7 @@ def create_app(
                     identity = client_identity(client_host)
 
                 response = None
-                if authenticator.enabled:
+                if authenticator.enabled and principal is not None:
                     parts = [part for part in request.url.path.split("/") if part]
                     if request.url.path == "/research/jobs/queue/stats":
                         response = JSONResponse(
