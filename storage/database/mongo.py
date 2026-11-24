@@ -11,6 +11,7 @@ from storage.models.experiment import (
 from storage.models.execution import ExecutionResult
 from storage.models.evidence import ResearchSource
 from storage.models.report import ResearchReport
+from storage.models.improvement import ImprovementCycle, ImprovementProposal
 from storage.models.job import ResearchJob, ResearchJobStatus
 from storage.models.job_attempt import ResearchJobAttempt
 from storage.models.job_stats import ResearchJobQueueStats
@@ -44,11 +45,17 @@ class MongoDatabase(Database):
         self.research_job_attempts = self.db["research_job_attempts"]
         self.task_checkpoints = self.db["task_checkpoints"]
         self.research_sources = self.db["research_sources"]
+        self.improvement_proposals = self.db["improvement_proposals"]
+        self.improvement_cycles = self.db["improvement_cycles"]
         self.experiment_parameter_snapshots.create_index("snapshot_id", unique=True)
         self.experiment_parameter_snapshots.create_index([("experiment_id", 1), ("version", 1)], unique=True)
         self.experiment_artifacts.create_index("artifact_id", unique=True)
         self.experiment_artifacts.create_index("sha256")
         self.experiment_artifacts.create_index("result_id")
+        self.improvement_proposals.create_index("proposal_id", unique=True)
+        self.improvement_proposals.create_index("cycle_id")
+        self.improvement_cycles.create_index("cycle_id", unique=True)
+        self.improvement_cycles.create_index("run_id")
         self.research_sources.create_index("source_id", unique=True)
         self.research_sources.create_index("canonical_id", unique=True)
         self.task_checkpoints.create_index("checkpoint_id", unique=True)
@@ -510,6 +517,48 @@ class MongoDatabase(Database):
             document.pop("_id", None)
             experiments.append(ExperimentDefinition.model_validate(document))
         return experiments
+
+    def save_improvement_proposal(self, proposal: ImprovementProposal) -> None:
+        self.improvement_proposals.replace_one(
+            {"proposal_id": proposal.proposal_id},
+            proposal.model_dump(mode="json"),
+            upsert=True,
+        )
+
+    def get_improvement_proposal(self, proposal_id: str) -> ImprovementProposal | None:
+        document = self.improvement_proposals.find_one({"proposal_id": proposal_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ImprovementProposal.model_validate(document)
+
+    def list_improvement_proposals_for_cycle(self, cycle_id: str) -> list[ImprovementProposal]:
+        items = []
+        for document in self.improvement_proposals.find({"cycle_id": cycle_id}):
+            document.pop("_id", None)
+            items.append(ImprovementProposal.model_validate(document))
+        return items
+
+    def save_improvement_cycle(self, cycle: ImprovementCycle) -> None:
+        self.improvement_cycles.replace_one(
+            {"cycle_id": cycle.cycle_id},
+            cycle.model_dump(mode="json"),
+            upsert=True,
+        )
+
+    def get_improvement_cycle(self, cycle_id: str) -> ImprovementCycle | None:
+        document = self.improvement_cycles.find_one({"cycle_id": cycle_id})
+        if document is None:
+            return None
+        document.pop("_id", None)
+        return ImprovementCycle.model_validate(document)
+
+    def list_improvement_cycles_for_run(self, run_id: str) -> list[ImprovementCycle]:
+        items = []
+        for document in self.improvement_cycles.find({"run_id": run_id}):
+            document.pop("_id", None)
+            items.append(ImprovementCycle.model_validate(document))
+        return items
 
     def save_research_memory(self, item: ResearchMemoryItem) -> None:
         self.research_memory.replace_one(
