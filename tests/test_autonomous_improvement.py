@@ -185,7 +185,6 @@ def test_improvement_cycle_api_supports_analysis_review_and_validation():
     proposal_id = proposals[0]["proposal_id"]
     approved = client.post(
         f"/research/improvement-proposals/{proposal_id}/approve",
-        
     )
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
