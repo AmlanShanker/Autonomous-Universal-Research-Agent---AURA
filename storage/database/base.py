@@ -41,7 +41,6 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    @abstractmethod
     def save_research_source(self, source: ResearchSource) -> None:
         pass
 
@@ -193,7 +192,6 @@ class Database(ABC):
         pass
 
     @abstractmethod
-    @abstractmethod
     def save_improvement_proposal(self, proposal: ImprovementProposal) -> None:
         pass
 
@@ -217,6 +215,7 @@ class Database(ABC):
     def list_improvement_cycles_for_run(self, run_id: str) -> list[ImprovementCycle]:
         pass
 
+    @abstractmethod
     def save_research_memory(self, item: ResearchMemoryItem) -> None:
         pass
 
