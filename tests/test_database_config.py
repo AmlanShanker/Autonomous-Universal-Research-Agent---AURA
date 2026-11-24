@@ -27,3 +27,13 @@ def test_missing_database_uri_returns_none(monkeypatch):
     monkeypatch.delenv("MONGO_URL", raising=False)
     monkeypatch.delenv("MONGODB_URI", raising=False)
     assert database_uri_from_environment() is None
+
+
+def test_legacy_settings_import_without_database_uri(monkeypatch):
+    import importlib
+
+    monkeypatch.delenv("MONGO_URL", raising=False)
+    import config.settings as settings
+
+    reloaded = importlib.reload(settings)
+    assert reloaded.MONGO_URL is None
