@@ -98,7 +98,7 @@ class AutonomousImprovementEngine:
 
     @staticmethod
     def _proposal(cycle_id, run_id, category, capability, rationale, action, evidence_refs):
-        identity = f"{category}:{capability}"
+        identity = f"{category}:{capability}:" + json.dumps(sorted(evidence_refs))
         proposal_id = str(uuid.uuid5(_NAMESPACE, f"{cycle_id}:{identity}"))
         return ImprovementProposal(
             proposal_id=proposal_id,
