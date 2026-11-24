@@ -159,15 +159,62 @@ def create_app(
                 else:
                     identity = client_identity(client_host)
 
-                allowed, remaining, reset_seconds = rate_limiter.check(identity)
-                if not allowed:
-                    response = JSONResponse(
-                        status_code=429,
-                        content={"detail": "API rate limit exceeded. Retry after the current window."},
-                        headers={"Retry-After": str(max(1, reset_seconds)),
-                                 "X-RateLimit-Limit": str(rate_limiter.limit),
-                                 "X-RateLimit-Remaining": "0"},
-                    )
+                response = None
+                if authenticator.enabled:
+                    parts = [part for part in request.url.path.split("/") if part]
+                    if request.url.path == "/research/jobs/queue/stats":
+                        response = JSONResponse(
+                            status_code=403,
+                            content={"detail": "Queue statistics are not tenant-scoped."},
+                        )
+                    else:
+                        resource_run = None
+                        if len(parts) >= 3 and parts[0:2] == ["research", "runs"]:
+                            resource_run = db.get_research_run(parts[2])
+                        elif len(parts) >= 3 and parts[0:2] == ["research", "jobs"] and parts[2] != "queue":
+                            resource_job = db.get_research_job(parts[2])
+                            if resource_job is not None:
+                                resource_run = db.get_research_run(resource_job.run_id)
+                        elif len(parts) == 3 and parts[0:2] == ["research", "reports"]:
+                            resource_report = db.get_research_report(parts[2])
+                            if resource_report is not None:
+                                resource_run = db.get_research_run(resource_report.run_id)
+                        if resource_run is not None and (
+                            principal is None or resource_run.tenant_id != principal.tenant_id
+                        ):
+                            response = JSONResponse(
+                                status_code=404,
+                                content={"detail": "Research resource not found."},
+                            )
+
+                if response is None:
+                    allowed, remaining, reset_seconds = rate_limiter.check(identity)
+                    if not allowed:
+                        response = JSONResponse(
+                            status_code=429,
+                            content={"detail": "API rate limit exceeded. Retry after the current window."},
+                            headers={"Retry-After": str(max(1, reset_seconds)),
+                                     "X-RateLimit-Limit": str(rate_limiter.limit),
+                                     "X-RateLimit-Remaining": "0"},
+                        )
+                    elif authenticator.enabled and request.url.path != "/health" and principal is None:
+                        response = JSONResponse(
+                            status_code=401,
+                            content={"detail": "A valid bearer API key is required."},
+                            headers={"WWW-Authenticate": "Bearer"},
+                        )
+                    elif (
+                        authenticator.enabled
+                        and request.url.path != "/health"
+                        and _role_level(principal.role) < (1 if request.method in {"GET", "HEAD", "OPTIONS"} else 2)
+                    ):
+                        response = JSONResponse(
+                            status_code=403,
+                            content={"detail": "The API key role is not permitted to perform this operation."},
+                        )
+                    else:
+                        response = await call_next(request)
+
                 elif authenticator.enabled and request.url.path != "/health" and principal is None:
                     response = JSONResponse(
                         status_code=401,
@@ -232,7 +279,7 @@ def create_app(
             raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.post("/research/runs", response_model=ResearchRunCreated, status_code=201, tags=["research"])
-    def create_research_run(request: ResearchQuestionRequest) -> ResearchRunCreated:
+    def create_research_run(request: ResearchQuestionRequest, raw_request: Request) -> ResearchRunCreated:
         question = request.question.strip()
         if not question:
             raise HTTPException(status_code=422, detail="Research question cannot be blank.")
@@ -244,6 +291,8 @@ def create_app(
                 run_id=str(uuid.uuid4()),
                 question=question,
             )
+            principal = getattr(raw_request.state, "api_principal", None)
+            run.tenant_id = principal.tenant_id if principal is not None else "development"
             run.tasks = [task.task_id for task in tasks]
             db.save_research_run(run)
             return ResearchRunCreated(run=run, plan=plan, tasks=tasks)
