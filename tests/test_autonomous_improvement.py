@@ -188,6 +188,7 @@ def test_improvement_cycle_api_supports_analysis_review_and_validation():
     )
     assert approved.status_code == 200
     assert approved.json()["status"] == "approved"
+    assert approved.json()["approved_by"] == "unauthenticated"
 
     database.save_experiment_result(ExperimentResult(
         result_id="api_experiment_result",
