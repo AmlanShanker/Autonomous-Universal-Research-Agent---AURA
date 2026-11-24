@@ -160,7 +160,19 @@ def create_app(
                     identity = client_identity(client_host)
 
                 response = None
-                if authenticator.enabled and principal is not None:
+                # Count every request before authorization short-circuits so rate-limit
+                # headers are always initialized and denied requests cannot bypass limits.
+                allowed, remaining, reset_seconds = rate_limiter.check(identity)
+                if not allowed:
+                    response = JSONResponse(
+                        status_code=429,
+                        content={"detail": "API rate limit exceeded. Retry after the current window."},
+                        headers={"Retry-After": str(max(1, reset_seconds)),
+                                 "X-RateLimit-Limit": str(rate_limiter.limit),
+                                 "X-RateLimit-Remaining": "0"},
+                    )
+
+                if response is None and authenticator.enabled and principal is not None:
                     parts = [part for part in request.url.path.split("/") if part]
                     if request.url.path == "/research/jobs/queue/stats":
                         response = JSONResponse(
@@ -184,8 +196,7 @@ def create_app(
                             if resource_report is not None:
                                 resource_run = db.get_research_run(resource_report.run_id)
                         if resource_found and (
-                            resource_run is None or principal is None
-                            or resource_run.tenant_id != principal.tenant_id
+                            resource_run is None or resource_run.tenant_id != principal.tenant_id
                         ):
                             response = JSONResponse(
                                 status_code=404,
@@ -193,16 +204,7 @@ def create_app(
                             )
 
                 if response is None:
-                    allowed, remaining, reset_seconds = rate_limiter.check(identity)
-                    if not allowed:
-                        response = JSONResponse(
-                            status_code=429,
-                            content={"detail": "API rate limit exceeded. Retry after the current window."},
-                            headers={"Retry-After": str(max(1, reset_seconds)),
-                                     "X-RateLimit-Limit": str(rate_limiter.limit),
-                                     "X-RateLimit-Remaining": "0"},
-                        )
-                    elif authenticator.enabled and request.url.path != "/health" and principal is None:
+                    if authenticator.enabled and request.url.path != "/health" and principal is None:
                         response = JSONResponse(
                             status_code=401,
                             content={"detail": "A valid bearer API key is required."},
