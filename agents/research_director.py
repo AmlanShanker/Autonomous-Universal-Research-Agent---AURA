@@ -187,8 +187,8 @@ Rules:
 - required_tools may contain only exact names from the available executable tool list above.
 - For every required tool, provide all required inputs under tool_inputs[tool_name] using the documented input contract.
 - Never invent, guess, or fabricate source URLs, dataset locations, checksums, or download endpoints.
-- For dataset_download, use only a direct public dataset URL explicitly present in the supplied research context or a trusted source record. Never use example.com, example.org, example.net, placeholder URLs, or URLs inferred from a filename.
-- If no verified direct dataset URL is available, do not create a dataset_download task. Instead, use literature_search to locate published cost/benchmark evidence and make downstream analysis explicitly state that estimates are literature-derived and that no raw benchmark dataset was downloaded.
+- Generated task graphs have no trusted dataset source registry. Do not create dataset_download tasks or invent any dataset URL, even if it looks plausible.
+- Instead, use literature_search to locate published cost/benchmark evidence and make downstream analysis explicitly state that estimates are literature-derived and that no raw benchmark dataset was downloaded.
 - Never make a dataset_download task a required dependency for the research to proceed when a literature-based fallback can satisfy the objective.
 - Never invent executable tool names, executable code, imports, or dependencies.
 - If no suitable trusted adapter is available, use an empty experiments array.
