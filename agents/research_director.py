@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlparse
 
 from storage.database.base import Database
 from storage.models.research import (
@@ -185,6 +186,10 @@ Rules:
 - Never put an experiment adapter name in required_tools. Adapters are invoked through experiments only.
 - required_tools may contain only exact names from the available executable tool list above.
 - For every required tool, provide all required inputs under tool_inputs[tool_name] using the documented input contract.
+- Never invent, guess, or fabricate source URLs, dataset locations, checksums, or download endpoints.
+- Generated task graphs have no trusted dataset source registry. Do not create dataset_download tasks or invent any dataset URL, even if it looks plausible.
+- Instead, use literature_search to locate published cost/benchmark evidence and make downstream analysis explicitly state that estimates are literature-derived and that no raw benchmark dataset was downloaded.
+- Never make a dataset_download task a required dependency for the research to proceed when a literature-based fallback can satisfy the objective.
 - Never invent executable tool names, executable code, imports, or dependencies.
 - If no suitable trusted adapter is available, use an empty experiments array.
 - If a task cannot be performed with available executable tools or a trusted adapter, do not pretend it can; omit that task or describe the limitation in a tool-free analysis task.
@@ -334,6 +339,18 @@ Rules:
                     raise ValueError(
                         f"Task {task.task_id} is missing required input(s) for "
                         f"'{tool_name}': " + ", ".join(missing_inputs)
+                    )
+                if tool_name == "dataset_download":
+                    # LLM-generated task graphs do not have a trusted dataset
+                    # source registry. Even a syntactically valid URL may be
+                    # fabricated, so external downloads are not allowed at
+                    # planning time. A future trusted-source integration can
+                    # explicitly enable this capability.
+                    raise ValueError(
+                        f"Task {task.task_id} requests dataset_download, but generated plans "
+                        "do not have a trusted dataset source registry. Do not invent a URL; "
+                        "use literature_search for published benchmark/cost evidence and "
+                        "disclose when no raw dataset is available."
                     )
             for experiment in task.experiments:
                 if experiment.adapter_name not in self.available_experiment_adapters:

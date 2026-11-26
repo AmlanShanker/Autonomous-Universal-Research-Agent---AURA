@@ -160,3 +160,53 @@ def test_empty_research_question_is_rejected_before_calling_llm():
         director.create_plan("   ")
 
     assert llm.prompts == []
+
+
+def test_create_tasks_rejects_placeholder_dataset_url_and_regenerates_without_download():
+    invalid = valid_tasks()
+    invalid["tasks"][0]["required_tools"] = ["dataset_download"]
+    invalid["tasks"][0]["tool_inputs"] = {
+        "dataset_download": {
+            "source_url": "https://example.com/datasets/enterprise_ai_cost_benchmarks.json",
+            "destination_path": "enterprise_ai_cost_benchmarks.json",
+        }
+    }
+    director, database, llm = make_director([
+        json.dumps(invalid),
+        json.dumps(valid_tasks()),
+    ])
+
+    tasks = director.create_tasks(ResearchPlan(**valid_plan()))
+
+    assert [task.task_id for task in tasks] == ["task_001", "task_002"]
+    assert len(llm.prompts) == 2
+    assert "trusted dataset source registry" in llm.prompts[1]
+    assert all("dataset_download" not in task.required_tools for task in tasks)
+    assert len(database.research_tasks) == 2
+
+
+@pytest.mark.parametrize(
+    "source_url",
+    [
+        "https://example.com/data.json",
+        "https://example.org/data.json",
+        "https://datasets.example.net/data.json",
+        "file:///tmp/data.json",
+        "not-a-url",
+        "https://real-looking-but-unverified-dataset.org/benchmarks.json",
+    ],
+)
+def test_task_graph_validation_rejects_unverified_dataset_download_urls(source_url):
+    director, _, _ = make_director([])
+    payload = valid_tasks()
+    payload["tasks"][0]["required_tools"] = ["dataset_download"]
+    payload["tasks"][0]["tool_inputs"] = {
+        "dataset_download": {
+            "source_url": source_url,
+            "destination_path": "dataset.json",
+        }
+    }
+    tasks = [ResearchTask(**item) for item in payload["tasks"]]
+
+    with pytest.raises(ValueError, match="trusted dataset source registry"):
+        director._validate_task_graph(tasks)
