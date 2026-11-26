@@ -180,7 +180,7 @@ def test_create_tasks_rejects_placeholder_dataset_url_and_regenerates_without_do
 
     assert [task.task_id for task in tasks] == ["task_001", "task_002"]
     assert len(llm.prompts) == 2
-    assert "invalid or placeholder dataset URL" in llm.prompts[1]
+    assert "trusted dataset source registry" in llm.prompts[1]
     assert all("dataset_download" not in task.required_tools for task in tasks)
     assert len(database.research_tasks) == 2
 
@@ -193,6 +193,7 @@ def test_create_tasks_rejects_placeholder_dataset_url_and_regenerates_without_do
         "https://datasets.example.net/data.json",
         "file:///tmp/data.json",
         "not-a-url",
+        "https://real-looking-but-unverified-dataset.org/benchmarks.json",
     ],
 )
 def test_task_graph_validation_rejects_unverified_dataset_download_urls(source_url):
@@ -207,5 +208,5 @@ def test_task_graph_validation_rejects_unverified_dataset_download_urls(source_u
     }
     tasks = [ResearchTask(**item) for item in payload["tasks"]]
 
-    with pytest.raises(ValueError, match="invalid or placeholder dataset URL"):
+    with pytest.raises(ValueError, match="trusted dataset source registry"):
         director._validate_task_graph(tasks)
