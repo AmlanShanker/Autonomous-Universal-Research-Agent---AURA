@@ -32,7 +32,7 @@ function deriveRunStatus(run: ResearchRun | null, tasks: ResearchTask[], job: Re
     const states = tasks.map((task) => (task.status || "pending").toLowerCase());
     if (states.some((status) => status === "failed")) return "failed";
     if (states.some((status) => status === "blocked")) return "blocked";
-    if (states.some((status => status === "running" || status === "in_progress"))) return "running";
+    if (states.some((status) => status === "running" || status === "in_progress")) return "running";
     if (states.every((status) => status === "completed" || status === "succeeded")) return "completed";
     if (states.every((status) => status === "cancelled")) return "cancelled";
   }
@@ -95,7 +95,7 @@ function App() {
       await loadTasks(nextJob.run_id);
       if (["succeeded", "failed", "cancelled"].includes(nextJob.status)) await loadRuns();
     } catch (caught) { setExecutionError(caught instanceof Error ? caught.message : "Could not refresh execution status."); }
-  }, [loadTasks]);
+  }, [loadRuns, loadTasks]);
   const startExecution = async () => {
     if (!selectedRunId || executionBusy) return;
     setExecutionBusy(true); setExecutionError("");
