@@ -1,4 +1,5 @@
 import json
+from urllib.parse import urlparse
 
 from storage.database.base import Database
 from storage.models.research import (
@@ -185,6 +186,10 @@ Rules:
 - Never put an experiment adapter name in required_tools. Adapters are invoked through experiments only.
 - required_tools may contain only exact names from the available executable tool list above.
 - For every required tool, provide all required inputs under tool_inputs[tool_name] using the documented input contract.
+- Never invent, guess, or fabricate source URLs, dataset locations, checksums, or download endpoints.
+- For dataset_download, use only a direct public dataset URL explicitly present in the supplied research context or a trusted source record. Never use example.com, example.org, example.net, placeholder URLs, or URLs inferred from a filename.
+- If no verified direct dataset URL is available, do not create a dataset_download task. Instead, use literature_search to locate published cost/benchmark evidence and make downstream analysis explicitly state that estimates are literature-derived and that no raw benchmark dataset was downloaded.
+- Never make a dataset_download task a required dependency for the research to proceed when a literature-based fallback can satisfy the objective.
 - Never invent executable tool names, executable code, imports, or dependencies.
 - If no suitable trusted adapter is available, use an empty experiments array.
 - If a task cannot be performed with available executable tools or a trusted adapter, do not pretend it can; omit that task or describe the limitation in a tool-free analysis task.
@@ -335,6 +340,26 @@ Rules:
                         f"Task {task.task_id} is missing required input(s) for "
                         f"'{tool_name}': " + ", ".join(missing_inputs)
                     )
+                if tool_name == "dataset_download":
+                    source_url = supplied_inputs.get("source_url")
+                    parsed_url = urlparse(source_url.strip()) if isinstance(source_url, str) else None
+                    hostname = (parsed_url.hostname or "").lower() if parsed_url else ""
+                    reserved_example_host = (
+                        hostname in {"example.com", "example.org", "example.net"}
+                        or hostname.endswith((".example.com", ".example.org", ".example.net"))
+                    )
+                    if (
+                        parsed_url is None
+                        or parsed_url.scheme not in {"http", "https"}
+                        or not hostname
+                        or reserved_example_host
+                    ):
+                        raise ValueError(
+                            f"Task {task.task_id} uses an invalid or placeholder dataset URL. "
+                            "Only use a verified direct HTTP(S) dataset URL from supplied trusted "
+                            "evidence; otherwise omit dataset_download and use literature_search "
+                            "with a clearly disclosed estimate-based fallback."
+                        )
             for experiment in task.experiments:
                 if experiment.adapter_name not in self.available_experiment_adapters:
                     raise ValueError(
