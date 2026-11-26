@@ -341,25 +341,17 @@ Rules:
                         f"'{tool_name}': " + ", ".join(missing_inputs)
                     )
                 if tool_name == "dataset_download":
-                    source_url = supplied_inputs.get("source_url")
-                    parsed_url = urlparse(source_url.strip()) if isinstance(source_url, str) else None
-                    hostname = (parsed_url.hostname or "").lower() if parsed_url else ""
-                    reserved_example_host = (
-                        hostname in {"example.com", "example.org", "example.net"}
-                        or hostname.endswith((".example.com", ".example.org", ".example.net"))
+                    # LLM-generated task graphs do not have a trusted dataset
+                    # source registry. Even a syntactically valid URL may be
+                    # fabricated, so external downloads are not allowed at
+                    # planning time. A future trusted-source integration can
+                    # explicitly enable this capability.
+                    raise ValueError(
+                        f"Task {task.task_id} requests dataset_download, but generated plans "
+                        "do not have a trusted dataset source registry. Do not invent a URL; "
+                        "use literature_search for published benchmark/cost evidence and "
+                        "disclose when no raw dataset is available."
                     )
-                    if (
-                        parsed_url is None
-                        or parsed_url.scheme not in {"http", "https"}
-                        or not hostname
-                        or reserved_example_host
-                    ):
-                        raise ValueError(
-                            f"Task {task.task_id} uses an invalid or placeholder dataset URL. "
-                            "Only use a verified direct HTTP(S) dataset URL from supplied trusted "
-                            "evidence; otherwise omit dataset_download and use literature_search "
-                            "with a clearly disclosed estimate-based fallback."
-                        )
             for experiment in task.experiments:
                 if experiment.adapter_name not in self.available_experiment_adapters:
                     raise ValueError(
