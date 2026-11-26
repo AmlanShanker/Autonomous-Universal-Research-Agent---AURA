@@ -87,7 +87,7 @@ function App() {
 
   const selectedRun = runs.find((run) => run.run_id === selectedRunId) || null;
   const selectedRunStatus = deriveRunStatus(selectedRun, tasks, job);
-  useEffect(() => { setJob(null); setDiagnostics(null); setExecutionError(""); }, [selectedRunId]);
+  useEffect(() => { setJob(null); setDiagnostics(null); setTasks([]); setExecutionError(""); }, [selectedRunId]);
   const refreshExecution = useCallback(async (jobId: string) => {
     try {
       const [nextJob, nextDiagnostics] = await Promise.all([apiGet<ResearchJob>(`/research/jobs/${encodeURIComponent(jobId)}`), apiGet<JobDiagnostics>(`/research/jobs/${encodeURIComponent(jobId)}/diagnostics`)]);
